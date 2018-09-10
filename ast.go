@@ -97,7 +97,7 @@ func Table(schema, tbname string) *TableNode {
 	return node
 }
 
-// Alias of a dst/view.
+// Alias of a table/view.
 type TableAliasNode struct {
 	BaseTableExpNode
 	table *TableNode
@@ -118,7 +118,7 @@ func (n *TableAliasNode) As(alias string) ColSource {
 	return n.table.As(alias)
 }
 
-// Return the Column of this dst.
+// Return the Column of this table.
 func (n *TableAliasNode) Column(cname string) *ColumnNode {
 	return Column(n, cname)
 }

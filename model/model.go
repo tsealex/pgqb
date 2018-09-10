@@ -6,7 +6,7 @@ import (
 )
 
 type restaurantModel struct {
-	source      pgqb.ColSource
+	pgqb.Model
 	Id          *pgqb.ColumnNode
 	Name        *pgqb.ColumnNode
 	Location    *pgqb.ColumnNode
@@ -17,12 +17,12 @@ type restaurantModel struct {
 }
 
 func (m *restaurantModel) As(alias string) *restaurantModel {
-	return newRestaurantModel(m.source.As(alias))
+	return newRestaurantModel(m.As(alias))
 }
 
-func newRestaurantModel(src pgqb.ColSource) *restaurantModel {
+func newRestaurantModel(src pgqb.Model) *restaurantModel {
 	return &restaurantModel{
-		source:      src,
+		Model:       src,
 		Id:          pgqb.Column(src, "Id"),
 		Name:        pgqb.Column(src, "name"),
 		Location:    pgqb.Column(src, "Location"),
@@ -59,4 +59,5 @@ func test() {
 	restA.NumCustomer.Add(restB.NumCustomer).Gt(50)
 	now := pgqb.FunctionCallFactory("now")
 	now()
+	restA.InnerJoin(restB, restA.Name.Eq(restB.Name))
 }
