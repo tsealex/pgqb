@@ -6,7 +6,7 @@ import (
 )
 
 type restaurantModel struct {
-	source      pgqb.ColumnSource
+	source      pgqb.ColSource
 	Id          *pgqb.ColumnNode
 	Name        *pgqb.ColumnNode
 	Location    *pgqb.ColumnNode
@@ -20,11 +20,11 @@ func (m *restaurantModel) As(alias string) *restaurantModel {
 	return newRestaurantModel(m.source.As(alias))
 }
 
-func newRestaurantModel(src pgqb.ColumnSource) *restaurantModel {
+func newRestaurantModel(src pgqb.ColSource) *restaurantModel {
 	return &restaurantModel{
 		source:      src,
 		Id:          pgqb.Column(src, "Id"),
-		Name:        pgqb.Column(src, "Name"),
+		Name:        pgqb.Column(src, "name"),
 		Location:    pgqb.Column(src, "Location"),
 		OpenTime:    pgqb.Column(src, "OpenTime"),
 		CloseTime:   pgqb.Column(src, "CloseTime"),

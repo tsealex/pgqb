@@ -10,30 +10,71 @@ type astNode interface {
 	isAstNode()
 	toSQL(ctx *BuildContext)
 }
-type ColumnSource interface {
-	astNode
-	isColumnSource()
-	Name() string
-	As(alias string) ColumnSource
+
+type ColSource interface {
+	name() string
+
+	As(alias string) ColSource
 	Column(cname string) *ColumnNode
 }
 
-// Table/View.
-type TableNode struct {
-	schema string
-	name   string
+type TableExp interface {
+	astNode
+	isTableExp()
+
+	Join(joinType JoinType, dst TableExp, onExp ColExp) TableExp
+	InnerJoin(dst TableExp, onExp ColExp) TableExp
+	LeftOuterJoin(dst TableExp, onExp ColExp) TableExp
+	RightOuterJoin(dst TableExp, onExp ColExp) TableExp
+	NaturalJoin(dst TableExp) TableExp
 }
 
-func (TableNode) isAstNode()      {}
-func (TableNode) isColumnSource() {}
+type BaseTableExpNode struct {
+	TableExp
+}
 
-func (n *TableNode) Name() string {
-	return n.name
+func (BaseTableExpNode) isAstNode() {}
+
+func (BaseTableExpNode) toSQL(ctx *BuildContext) {
+	panic("not implemented")
+}
+
+func (n *BaseTableExpNode) Join(joinType JoinType, dst TableExp, onExp ColExp) TableExp {
+	return Join(joinType, n.TableExp, dst, onExp)
+}
+
+func (n *BaseTableExpNode) InnerJoin(dst TableExp, onExp ColExp) TableExp {
+	return n.Join(InnerJoin, dst, onExp)
+}
+
+func (n *BaseTableExpNode) LeftOuterJoin(dst TableExp, onExp ColExp) TableExp {
+	return n.Join(LeftOuterJoin, dst, onExp)
+}
+
+func (n *BaseTableExpNode) RightOuterJoin(dst TableExp, onExp ColExp) TableExp {
+	return n.Join(RightOuterJoin, dst, onExp)
+}
+
+func (n *BaseTableExpNode) NaturalJoin(dst TableExp) TableExp {
+	return n.Join(NaturalJoin, dst, nil)
+}
+
+func (BaseTableExpNode) isTableExp() {}
+
+// Table/View.
+type TableNode struct {
+	BaseTableExpNode
+	schema string
+	tbname string
+}
+
+func (n *TableNode) name() string {
+	return n.tbname
 }
 
 func (n *TableNode) toSQL(ctx *BuildContext) {
 	// TODO: This opIs Postgres-specific.
-	tbname := ctx.QuoteObject(n.name)
+	tbname := ctx.QuoteObject(n.tbname)
 	if n.schema != "" {
 		ctx.buf.WriteString(ctx.QuoteObject(n.schema) + "." + tbname)
 	} else {
@@ -41,26 +82,27 @@ func (n *TableNode) toSQL(ctx *BuildContext) {
 	}
 }
 
-func (n *TableNode) As(alias string) ColumnSource {
+func (n *TableNode) As(alias string) ColSource {
 	return &TableAliasNode{table: n, alias: alias}
 }
 
-// Return the column of this table.
+// Return the column of this dst.
 func (n *TableNode) Column(cname string) *ColumnNode {
 	return Column(n, cname)
 }
 
 func Table(schema, tbname string) *TableNode {
-	return &TableNode{schema: schema, name: tbname}
+	node := &TableNode{schema: schema, tbname: tbname}
+	node.TableExp = node
+	return node
 }
 
-// Alias of a table/view.
+// Alias of a dst/view.
 type TableAliasNode struct {
+	BaseTableExpNode
 	table *TableNode
 	alias string
 }
-
-func (TableAliasNode) isAstNode() {}
 
 func (n *TableAliasNode) toSQL(ctx *BuildContext) {
 	n.table.toSQL(ctx)
@@ -68,195 +110,230 @@ func (n *TableAliasNode) toSQL(ctx *BuildContext) {
 	ctx.buf.WriteString(" " + ctx.QuoteObject(n.alias))
 }
 
-func (TableAliasNode) isColumnSource() {}
-
-func (n *TableAliasNode) Name() string {
+func (n *TableAliasNode) name() string {
 	return n.alias
 }
 
-func (n *TableAliasNode) As(alias string) ColumnSource {
+func (n *TableAliasNode) As(alias string) ColSource {
 	return n.table.As(alias)
 }
 
-// Return the Column of this table.
+// Return the Column of this dst.
 func (n *TableAliasNode) Column(cname string) *ColumnNode {
 	return Column(n, cname)
 }
 
+// Join expression.
+type JoinType string
+
+const (
+	InnerJoin      JoinType = "INNER JOIN"
+	LeftOuterJoin           = "LEFT OUTER JOIN"
+	RightOuterJoin          = "RIGHT OUTER JOIN"
+	NaturalJoin             = "NATURAL JOIN"
+)
+
+type JoinNode struct {
+	BaseTableExpNode
+	src      TableExp
+	dst      TableExp
+	exp      ColExp
+	joinType JoinType
+}
+
+func (JoinNode) isTableExp() {}
+
+func (JoinNode) isAstNode() {}
+
+func (n *JoinNode) toSQL(ctx *BuildContext) {
+	n.src.toSQL(ctx)
+	ctx.buf.WriteString(" " + string(n.joinType) + " ")
+	n.dst.toSQL(ctx)
+	if n.joinType != NaturalJoin {
+		ctx.buf.WriteString(" ON (")
+		n.exp.toSQL(ctx)
+		ctx.buf.WriteByte(')')
+	}
+}
+
+func Join(joinType JoinType, src, dst TableExp, onExp ColExp) *JoinNode {
+	return &JoinNode{src: src, exp: onExp, dst: dst, joinType: joinType}
+}
+
 // Abstract expression.
-type ExpressionNode interface {
+type ColExp interface {
 	astNode
-	isExpression()
-	collectColumnSources(collector map[string]ColumnSource)
+	isColExp()
+	collectColSources(collector map[string]ColSource)
 	// Binary operations
-	Add(right interface{}) ExpressionNode
-	Sub(right interface{}) ExpressionNode
-	Mul(right interface{}) ExpressionNode
-	Div(right interface{}) ExpressionNode
-	Mod(right interface{}) ExpressionNode
-	Exp(right interface{}) ExpressionNode
-	Is(right interface{}) ExpressionNode
-	IsNot(right interface{}) ExpressionNode
-	Gt(right interface{}) ExpressionNode
-	Gte(right interface{}) ExpressionNode
-	Lt(right interface{}) ExpressionNode
-	Lte(right interface{}) ExpressionNode
-	Eq(right interface{}) ExpressionNode
-	Ne(right interface{}) ExpressionNode
-	Like(right interface{}) ExpressionNode
-	NotLike(right interface{}) ExpressionNode
-	Similar(right interface{}) ExpressionNode
-	NotSimilar(right interface{}) ExpressionNode
-	Match(right interface{}, caseInSen bool) ExpressionNode
-	NotMatch(right interface{}, caseInSen bool) ExpressionNode
-	Contains(right interface{}) ExpressionNode
-	ContainedBy(right interface{}) ExpressionNode
-	Union(right interface{}) ExpressionNode
-	Intersect(right interface{}) ExpressionNode
-	BitAnd(right interface{}) ExpressionNode
-	BitOr(right interface{}) ExpressionNode
-	BitXor(right interface{}) ExpressionNode
-	LeftShift(right interface{}) ExpressionNode
-	RightShift(right interface{}) ExpressionNode
+	Add(right interface{}) ColExp
+	Sub(right interface{}) ColExp
+	Mul(right interface{}) ColExp
+	Div(right interface{}) ColExp
+	Mod(right interface{}) ColExp
+	Exp(right interface{}) ColExp
+	Is(right interface{}) ColExp
+	IsNot(right interface{}) ColExp
+	Gt(right interface{}) ColExp
+	Gte(right interface{}) ColExp
+	Lt(right interface{}) ColExp
+	Lte(right interface{}) ColExp
+	Eq(right interface{}) ColExp
+	Ne(right interface{}) ColExp
+	Like(right interface{}) ColExp
+	NotLike(right interface{}) ColExp
+	Similar(right interface{}) ColExp
+	NotSimilar(right interface{}) ColExp
+	Match(right interface{}, caseInSen bool) ColExp
+	NotMatch(right interface{}, caseInSen bool) ColExp
+	Contains(right interface{}) ColExp
+	ContainedBy(right interface{}) ColExp
+	Union(right interface{}) ColExp
+	Intersect(right interface{}) ColExp
+	BitAnd(right interface{}) ColExp
+	BitOr(right interface{}) ColExp
+	BitXor(right interface{}) ColExp
+	LeftShift(right interface{}) ColExp
+	RightShift(right interface{}) ColExp
 }
 
 // Base expression.
-type BaseExpressionNode struct {
-	ExpressionNode
+type BaseColExpNode struct {
+	ColExp
 }
 
-func (n *BaseExpressionNode) Add(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opAdd, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) Add(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opAdd, getExp(right))
 }
 
-func (n *BaseExpressionNode) Sub(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opSub, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) Sub(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opSub, getExp(right))
 }
 
-func (n *BaseExpressionNode) Mul(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opMul, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) Mul(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opMul, getExp(right))
 }
 
-func (n *BaseExpressionNode) Div(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opDiv, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) Div(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opDiv, getExp(right))
 }
 
-func (n *BaseExpressionNode) Gt(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opGt, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) Gt(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opGt, getExp(right))
 }
-func (n *BaseExpressionNode) Gte(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opGte, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) Gte(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opGte, getExp(right))
 }
-func (n *BaseExpressionNode) Lt(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opLt, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) Lt(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opLt, getExp(right))
 }
-func (n *BaseExpressionNode) Lte(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opLte, getExpressionOrLiteral(right))
-}
-
-func (n *BaseExpressionNode) Eq(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opEq, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) Lte(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opLte, getExp(right))
 }
 
-func (n *BaseExpressionNode) Ne(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opNe, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) Eq(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opEq, getExp(right))
 }
 
-func (n *BaseExpressionNode) Mod(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opMod, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) Ne(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opNe, getExp(right))
 }
 
-func (n *BaseExpressionNode) Exp(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opExp, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) Mod(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opMod, getExp(right))
 }
 
-func (n *BaseExpressionNode) Is(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opIs, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) Exp(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opExp, getExp(right))
 }
 
-func (n *BaseExpressionNode) IsNot(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opIsNot, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) Is(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opIs, getExp(right))
 }
 
-func (n *BaseExpressionNode) Like(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opLike, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) IsNot(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opIsNot, getExp(right))
 }
 
-func (n *BaseExpressionNode) NotLike(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opNotLike, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) Like(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opLike, getExp(right))
 }
 
-func (n *BaseExpressionNode) Match(right interface{}, caseInSen bool) ExpressionNode {
+func (n *BaseColExpNode) NotLike(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opNotLike, getExp(right))
+}
+
+func (n *BaseColExpNode) Match(right interface{}, caseInSen bool) ColExp {
 	if caseInSen {
-		return BinaryExpression(n.ExpressionNode, opInsMatch, getExpressionOrLiteral(right))
+		return BinaryExp(n.ColExp, opInsMatch, getExp(right))
 	} else {
-		return BinaryExpression(n.ExpressionNode, opMatch, getExpressionOrLiteral(right))
+		return BinaryExp(n.ColExp, opMatch, getExp(right))
 	}
 }
 
-func (n *BaseExpressionNode) NotMatch(right interface{}, caseInSen bool) ExpressionNode {
+func (n *BaseColExpNode) NotMatch(right interface{}, caseInSen bool) ColExp {
 	if caseInSen {
-		return BinaryExpression(n.ExpressionNode, opNotInsMatch, getExpressionOrLiteral(right))
+		return BinaryExp(n.ColExp, opNotInsMatch, getExp(right))
 	} else {
-		return BinaryExpression(n.ExpressionNode, opNotMatch, getExpressionOrLiteral(right))
+		return BinaryExp(n.ColExp, opNotMatch, getExp(right))
 	}
 }
 
-func (n *BaseExpressionNode) Similar(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opSimilar, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) Similar(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opSimilar, getExp(right))
 }
 
-func (n *BaseExpressionNode) NotSimilar(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opNotSimilar, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) NotSimilar(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opNotSimilar, getExp(right))
 }
 
-func (n *BaseExpressionNode) Contains(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opContains, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) Contains(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opContains, getExp(right))
 }
 
-func (n *BaseExpressionNode) ContainedBy(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opContainedBy, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) ContainedBy(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opContainedBy, getExp(right))
 }
 
-func (n *BaseExpressionNode) Union(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opUnion, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) Union(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opUnion, getExp(right))
 }
 
-func (n *BaseExpressionNode) Intersect(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opIntersect, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) Intersect(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opIntersect, getExp(right))
 }
 
-func (n *BaseExpressionNode) BitAnd(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opBitAnd, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) BitAnd(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opBitAnd, getExp(right))
 }
 
-func (n *BaseExpressionNode) BitOr(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opBitOr, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) BitOr(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opBitOr, getExp(right))
 }
 
-func (n *BaseExpressionNode) BitXor(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opBitXor, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) BitXor(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opBitXor, getExp(right))
 }
 
-func (n *BaseExpressionNode) LeftShift(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opLeftShift, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) LeftShift(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opLeftShift, getExp(right))
 }
 
-func (n *BaseExpressionNode) RightShift(right interface{}) ExpressionNode {
-	return BinaryExpression(n.ExpressionNode, opRightShift, getExpressionOrLiteral(right))
+func (n *BaseColExpNode) RightShift(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opRightShift, getExp(right))
 }
 
-func (BaseExpressionNode) toSQL(ctx *BuildContext) {
+func (BaseColExpNode) toSQL(ctx *BuildContext) {
 	panic("not implemented")
 }
 
-func (BaseExpressionNode) isAstNode()                                             {}
-func (BaseExpressionNode) isExpression()                                          {}
-func (BaseExpressionNode) collectColumnSources(collector map[string]ColumnSource) {}
+func (BaseColExpNode) isAstNode()                                       {}
+func (BaseColExpNode) isColExp()                                        {}
+func (BaseColExpNode) collectColSources(collector map[string]ColSource) {}
 
 // Placeholder for an argument.
 type ArgumentNode struct {
-	BaseExpressionNode
+	BaseColExpNode
 	tag string
 }
 
@@ -275,13 +352,13 @@ func (n *ArgumentNode) toSQL(ctx *BuildContext) {
 func Argument(tag string) *ArgumentNode {
 	tag = strings.TrimSpace(tag)
 	node := &ArgumentNode{tag: tag}
-	node.ExpressionNode = node
+	node.ColExp = node
 	return node
 }
 
 // Single SQL literal.
 type LiteralNode struct {
-	BaseExpressionNode
+	BaseColExpNode
 	value string
 }
 
@@ -332,12 +409,12 @@ func Literal(value interface{}) *LiteralNode {
 		}
 		node = &LiteralNode{value: litVal}
 	}
-	node.ExpressionNode = node
+	node.ColExp = node
 	return node
 }
 
-func getExpressionOrLiteral(exp interface{}) ExpressionNode {
-	if res, ok := exp.(ExpressionNode); ok {
+func getExp(exp interface{}) ColExp {
+	if res, ok := exp.(ColExp); ok {
 		return res
 	}
 	return Literal(exp)
@@ -345,18 +422,18 @@ func getExpressionOrLiteral(exp interface{}) ExpressionNode {
 
 // Column.
 type ColumnNode struct {
-	BaseExpressionNode
-	source ColumnSource
+	BaseColExpNode
+	source ColSource
 	name   string
 }
 
 func (n *ColumnNode) toSQL(ctx *BuildContext) {
 	// TODO: This opIs Postgres-specific
-	ctx.buf.WriteString(ctx.QuoteObject(n.source.Name()) + "." + ctx.QuoteObject(n.name))
+	ctx.buf.WriteString(ctx.QuoteObject(n.source.name()) + "." + ctx.QuoteObject(n.name))
 }
 
-func (n *ColumnNode) collectColumnSources(collector map[string]ColumnSource) {
-	id := n.source.Name()
+func (n *ColumnNode) collectColSources(collector map[string]ColSource) {
+	id := n.source.name()
 	collector[id] = n.source
 }
 
@@ -364,15 +441,15 @@ func (n *ColumnNode) As(alias string) *ColumnAliasNode {
 	return columnAlias(n, alias)
 }
 
-func Column(src ColumnSource, cname string) *ColumnNode {
+func Column(src ColSource, cname string) *ColumnNode {
 	node := &ColumnNode{source: src, name: cname}
-	node.ExpressionNode = node
+	node.ColExp = node
 	return node
 }
 
 // Alias of column.
 type ColumnAliasNode struct {
-	BaseExpressionNode
+	BaseColExpNode
 	column *ColumnNode
 	alias  string
 }
@@ -390,40 +467,40 @@ func (n *ColumnAliasNode) toSQL(ctx *BuildContext) {
 	ctx.buf.WriteString(name)
 }
 
-func (n *ColumnAliasNode) collectColumnSources(collector map[string]ColumnSource) {
+func (n *ColumnAliasNode) collectColSources(collector map[string]ColSource) {
 	col := n.column
-	col.collectColumnSources(collector)
+	col.collectColSources(collector)
 }
 
 func columnAlias(src *ColumnNode, alias string) *ColumnAliasNode {
 	node := &ColumnAliasNode{column: src, alias: alias}
-	node.ExpressionNode = node
+	node.ColExp = node
 	return node
 }
 
 // Expression surrounded by parenthesis.
-type GroupExpression struct {
-	BaseExpressionNode
-	exp ExpressionNode
+type GroupExpNode struct {
+	BaseColExpNode
+	exp ColExp
 }
 
-func (n *GroupExpression) toSQL(ctx *BuildContext) {
+func (n *GroupExpNode) toSQL(ctx *BuildContext) {
 	ctx.buf.WriteByte('(')
 	n.exp.toSQL(ctx)
 	ctx.buf.WriteByte(')')
 }
 
-func (n *GroupExpression) collectColumnSources(collector map[string]ColumnSource) {
-	n.exp.collectColumnSources(collector)
+func (n *GroupExpNode) collectColSources(collector map[string]ColSource) {
+	n.exp.collectColSources(collector)
 }
 
-func Group(exp ExpressionNode) *GroupExpression {
-	node := &GroupExpression{exp: exp}
-	node.ExpressionNode = node
+func Group(exp ColExp) *GroupExpNode {
+	node := &GroupExpNode{exp: exp}
+	node.ColExp = node
 	return node
 }
 
-func G(exp ExpressionNode) *GroupExpression {
+func G(exp ColExp) *GroupExpNode {
 	return Group(exp)
 }
 
@@ -435,18 +512,18 @@ const (
 	posRight                  = true
 )
 
-type UnaryExpressionNode struct {
-	BaseExpressionNode
-	exp      ExpressionNode
+type UnaryExpNode struct {
+	BaseColExpNode
+	exp      ColExp
 	op       string
 	position operatorPosition
 }
 
-func (n *UnaryExpressionNode) collectColumnSources(collector map[string]ColumnSource) {
-	n.exp.collectColumnSources(collector)
+func (n *UnaryExpNode) collectColSources(collector map[string]ColSource) {
+	n.exp.collectColSources(collector)
 }
 
-func (n *UnaryExpressionNode) toSQL(ctx *BuildContext) {
+func (n *UnaryExpNode) toSQL(ctx *BuildContext) {
 	if !n.position {
 		ctx.buf.WriteString(n.op + " ")
 		n.exp.toSQL(ctx)
@@ -456,9 +533,9 @@ func (n *UnaryExpressionNode) toSQL(ctx *BuildContext) {
 	}
 }
 
-func UnaryExpression(exp ExpressionNode, op string, pos operatorPosition) *UnaryExpressionNode {
-	node := &UnaryExpressionNode{exp: exp, op: op, position: pos}
-	node.ExpressionNode = node
+func UnaryExp(exp ColExp, op string, pos operatorPosition) *UnaryExpNode {
+	node := &UnaryExpNode{exp: exp, op: op, position: pos}
+	node.ColExp = node
 	return node
 }
 
@@ -468,48 +545,48 @@ const (
 	opFactorial        = "!"
 )
 
-func Neg(exp interface{}) *UnaryExpressionNode {
-	return UnaryExpression(getExpressionOrLiteral(exp), opNeg, posLeft)
+func Neg(exp interface{}) *UnaryExpNode {
+	return UnaryExp(getExp(exp), opNeg, posLeft)
 }
 
-func Abs(exp interface{}) *UnaryExpressionNode {
-	return UnaryExpression(getExpressionOrLiteral(exp), opAbs, posLeft)
+func Abs(exp interface{}) *UnaryExpNode {
+	return UnaryExp(getExp(exp), opAbs, posLeft)
 }
 
-func Factorial(exp interface{}) *UnaryExpressionNode {
-	return UnaryExpression(getExpressionOrLiteral(exp), opFactorial, posRight)
+func Factorial(exp interface{}) *UnaryExpNode {
+	return UnaryExp(getExp(exp), opFactorial, posRight)
 }
 
 const (
 	opNot string = "NOT"
 )
 
-func Not(exp interface{}) *UnaryExpressionNode {
-	return UnaryExpression(Group(getExpressionOrLiteral(exp)), opNot, posLeft)
+func Not(exp interface{}) *UnaryExpNode {
+	return UnaryExp(Group(getExp(exp)), opNot, posLeft)
 }
 
 // Binary expressions
-type BinaryExpressionNode struct {
-	BaseExpressionNode
-	left  ExpressionNode
-	right ExpressionNode
+type BinaryExpNode struct {
+	BaseColExpNode
+	left  ColExp
+	right ColExp
 	op    string
 }
 
-func (n *BinaryExpressionNode) toSQL(ctx *BuildContext) {
+func (n *BinaryExpNode) toSQL(ctx *BuildContext) {
 	n.left.toSQL(ctx)
 	ctx.buf.WriteString(" " + n.op + " ")
 	n.right.toSQL(ctx)
 }
 
-func (n *BinaryExpressionNode) collectColumnSources(collector map[string]ColumnSource) {
-	n.left.collectColumnSources(collector)
-	n.right.collectColumnSources(collector)
+func (n *BinaryExpNode) collectColSources(collector map[string]ColSource) {
+	n.left.collectColSources(collector)
+	n.right.collectColSources(collector)
 }
 
-func BinaryExpression(left ExpressionNode, op string, right ExpressionNode) *BinaryExpressionNode {
-	node := &BinaryExpressionNode{left: left, right: right, op: op}
-	node.ExpressionNode = node
+func BinaryExp(left ColExp, op string, right ColExp) *BinaryExpNode {
+	node := &BinaryExpNode{left: left, right: right, op: op}
+	node.ColExp = node
 	return node
 }
 
@@ -550,30 +627,30 @@ const (
 )
 
 // Multi-expression base node.
-type MultiExpressionNode struct {
-	BaseExpressionNode
-	expList []ExpressionNode
+type MultiExpNode struct {
+	BaseColExpNode
+	expList []ColExp
 }
 
-func (n *MultiExpressionNode) collectColumnSources(collector map[string]ColumnSource) {
+func (n *MultiExpNode) collectColSources(collector map[string]ColSource) {
 	for _, exp := range n.expList {
-		exp.collectColumnSources(collector)
+		exp.collectColSources(collector)
 	}
 }
 
-func MultiExpression(expList []ExpressionNode) *MultiExpressionNode {
-	node := &MultiExpressionNode{expList: expList}
-	node.ExpressionNode = node
+func MultiExp(expList []ColExp) *MultiExpNode {
+	node := &MultiExpNode{expList: expList}
+	node.ColExp = node
 	return node
 }
 
 // Logical operations.
-type LogicalExpressionNode struct {
-	MultiExpressionNode
+type LogicalExpNode struct {
+	MultiExpNode
 	op string
 }
 
-func (n *LogicalExpressionNode) toSQL(ctx *BuildContext) {
+func (n *LogicalExpNode) toSQL(ctx *BuildContext) {
 	for i, exp := range n.expList {
 		if i > 0 {
 			ctx.buf.WriteString(" " + n.op + " ")
@@ -584,12 +661,12 @@ func (n *LogicalExpressionNode) toSQL(ctx *BuildContext) {
 	}
 }
 
-func BinaryLogicalExpression(op string, expList []ExpressionNode) *LogicalExpressionNode {
+func LogicalExp(op string, expList []ColExp) *LogicalExpNode {
 	if len(expList) == 0 {
 		panic("must have at least one sub-expression")
 	}
-	node := &LogicalExpressionNode{MultiExpressionNode: *MultiExpression(expList), op: op}
-	node.ExpressionNode = node
+	node := &LogicalExpNode{MultiExpNode: *MultiExp(expList), op: op}
+	node.ColExp = node
 	return node
 }
 
@@ -598,25 +675,25 @@ const (
 	opAnd string = "AND"
 )
 
-func getExpressionOrLiteralList(exps []interface{}) []ExpressionNode {
-	var expList = make([]ExpressionNode, len(exps))
+func getExpList(exps []interface{}) []ColExp {
+	var expList = make([]ColExp, len(exps))
 	for i, exp := range exps {
-		expList[i] = getExpressionOrLiteral(exp)
+		expList[i] = getExp(exp)
 	}
 	return expList
 }
 
-func And(exps ... interface{}) *LogicalExpressionNode {
-	return BinaryLogicalExpression(opAnd, getExpressionOrLiteralList(exps))
+func And(exps ... interface{}) *LogicalExpNode {
+	return LogicalExp(opAnd, getExpList(exps))
 }
 
-func Or(exps ... interface{}) *LogicalExpressionNode {
-	return BinaryLogicalExpression(opOr, getExpressionOrLiteralList(exps))
+func Or(exps ... interface{}) *LogicalExpNode {
+	return LogicalExp(opOr, getExpList(exps))
 }
 
 // Function call expression.
 type FunctionCallNode struct {
-	MultiExpressionNode
+	MultiExpNode
 	name string
 }
 
@@ -633,9 +710,9 @@ func (n *FunctionCallNode) toSQL(ctx *BuildContext) {
 }
 
 func FunctionCall(name string, args ... interface{}) *FunctionCallNode {
-	exps := getExpressionOrLiteralList(args)
-	node := &FunctionCallNode{MultiExpressionNode: *MultiExpression(exps), name: name}
-	node.ExpressionNode = node
+	exps := getExpList(args)
+	node := &FunctionCallNode{MultiExpNode: *MultiExp(exps), name: name}
+	node.ColExp = node
 	return node
 }
 
