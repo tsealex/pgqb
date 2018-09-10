@@ -356,6 +356,10 @@ func Argument(tag string) *ArgumentNode {
 	return node
 }
 
+func Arg(tag string) *ArgumentNode {
+	return Argument(tag)
+}
+
 // Single SQL literal.
 type LiteralNode struct {
 	BaseColExpNode
