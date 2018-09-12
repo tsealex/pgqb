@@ -8,13 +8,13 @@ import (
 // Node in the abstract syntax tree.
 type astNode interface {
 	isAstNode()
-	toSQL(ctx *BuildContext)
+	toSQL(ctx *buildContext)
 }
 
 type ColSource interface {
 	name() string
 
-	As(alias string) ColSource
+	As(alias string) *TableAliasNode
 	Column(cname string) *ColumnNode
 }
 
@@ -35,7 +35,7 @@ type BaseTableExpNode struct {
 
 func (BaseTableExpNode) isAstNode() {}
 
-func (BaseTableExpNode) toSQL(ctx *BuildContext) {
+func (BaseTableExpNode) toSQL(ctx *buildContext) {
 	panic("not implemented")
 }
 
@@ -72,7 +72,7 @@ func (n *TableNode) name() string {
 	return n.tbname
 }
 
-func (n *TableNode) toSQL(ctx *BuildContext) {
+func (n *TableNode) toSQL(ctx *buildContext) {
 	// TODO: This opIs Postgres-specific.
 	tbname := ctx.QuoteObject(n.tbname)
 	if n.schema != "" {
@@ -82,8 +82,8 @@ func (n *TableNode) toSQL(ctx *BuildContext) {
 	}
 }
 
-func (n *TableNode) As(alias string) ColSource {
-	return &TableAliasNode{table: n, alias: alias}
+func (n *TableNode) As(alias string) *TableAliasNode {
+	return TableAlias(n, alias)
 }
 
 // Return the column of this dst.
@@ -104,7 +104,7 @@ type TableAliasNode struct {
 	alias string
 }
 
-func (n *TableAliasNode) toSQL(ctx *BuildContext) {
+func (n *TableAliasNode) toSQL(ctx *buildContext) {
 	n.table.toSQL(ctx)
 	// TODO: This may be Postgres-specific.
 	ctx.buf.WriteString(" " + ctx.QuoteObject(n.alias))
@@ -114,13 +114,19 @@ func (n *TableAliasNode) name() string {
 	return n.alias
 }
 
-func (n *TableAliasNode) As(alias string) ColSource {
+func (n *TableAliasNode) As(alias string) *TableAliasNode {
 	return n.table.As(alias)
 }
 
 // Return the Column of this table.
 func (n *TableAliasNode) Column(cname string) *ColumnNode {
 	return Column(n, cname)
+}
+
+func TableAlias(table *TableNode, alias string) *TableAliasNode {
+	node := &TableAliasNode{table: table, alias: alias}
+	node.TableExp = node
+	return node
 }
 
 // Join expression.
@@ -145,7 +151,7 @@ func (JoinNode) isTableExp() {}
 
 func (JoinNode) isAstNode() {}
 
-func (n *JoinNode) toSQL(ctx *BuildContext) {
+func (n *JoinNode) toSQL(ctx *buildContext) {
 	n.src.toSQL(ctx)
 	ctx.buf.WriteString(" " + string(n.joinType) + " ")
 	n.dst.toSQL(ctx)
@@ -323,7 +329,7 @@ func (n *BaseColExpNode) RightShift(right interface{}) ColExp {
 	return BinaryExp(n.ColExp, opRightShift, getExp(right))
 }
 
-func (BaseColExpNode) toSQL(ctx *BuildContext) {
+func (BaseColExpNode) toSQL(ctx *buildContext) {
 	panic("not implemented")
 }
 
@@ -337,7 +343,7 @@ type ArgumentNode struct {
 	tag string
 }
 
-func (n *ArgumentNode) toSQL(ctx *BuildContext) {
+func (n *ArgumentNode) toSQL(ctx *buildContext) {
 	if ctx.NamedArgumentMode() {
 		if n.tag == "" {
 			panic("empty tag opIs not allowed in NamedArgument mode")
@@ -361,6 +367,55 @@ func Arg(tag string) *ArgumentNode {
 }
 
 // Single SQL literal.
+type SQLLiteral interface {
+	GetSQLRepr() string
+}
+
+func convertValueToSQL(value interface{}) string {
+	if value == nil {
+		return "NULL"
+	}
+	var res string
+	switch value.(type) {
+	case int:
+		res = strconv.FormatInt(int64(value.(int)), 10)
+	case int8:
+		res = strconv.FormatInt(int64(value.(int8)), 10)
+	case int16:
+		res = strconv.FormatInt(int64(value.(int16)), 10)
+	case int32:
+		res = strconv.FormatInt(int64(value.(int32)), 10)
+	case int64:
+		res = strconv.FormatInt(value.(int64), 10)
+	case uint:
+		res = strconv.FormatUint(uint64(value.(uint)), 10)
+	case uint8:
+		res = strconv.FormatUint(uint64(value.(uint8)), 10)
+	case uint16:
+		res = strconv.FormatUint(uint64(value.(uint16)), 10)
+	case uint32:
+		res = strconv.FormatUint(uint64(value.(uint32)), 10)
+	case uint64:
+		res = strconv.FormatUint(value.(uint64), 10)
+	case float32:
+		res = strconv.FormatFloat(float64(value.(float32)), 'f', -1, 32)
+	case float64:
+		res = strconv.FormatFloat(value.(float64), 'f', -1, 64)
+	case bool:
+		res = strconv.FormatBool(value.(bool))
+	case string:
+		// TODO: This opIs Postgres-specific
+		res = "'" + value.(string) + "'"
+	default:
+		if l, ok := value.(SQLLiteral); ok {
+			res = l.GetSQLRepr()
+		} else {
+			panic("unrecognizable value type")
+		}
+	}
+	return res
+}
+
 type LiteralNode struct {
 	BaseColExpNode
 	value string
@@ -368,51 +423,12 @@ type LiteralNode struct {
 
 var Null = Literal(nil)
 
-func (n *LiteralNode) toSQL(ctx *BuildContext) {
+func (n *LiteralNode) toSQL(ctx *buildContext) {
 	ctx.buf.WriteString(n.value)
 }
 
 func Literal(value interface{}) *LiteralNode {
-	var node *LiteralNode
-	if value == nil {
-		node = &LiteralNode{value: "NULL"}
-	} else {
-		var litVal string
-		switch value.(type) {
-		case int:
-			litVal = strconv.FormatInt(int64(value.(int)), 10)
-		case int8:
-			litVal = strconv.FormatInt(int64(value.(int8)), 10)
-		case int16:
-			litVal = strconv.FormatInt(int64(value.(int16)), 10)
-		case int32:
-			litVal = strconv.FormatInt(int64(value.(int32)), 10)
-		case int64:
-			litVal = strconv.FormatInt(value.(int64), 10)
-		case uint:
-			litVal = strconv.FormatUint(uint64(value.(uint)), 10)
-		case uint8:
-			litVal = strconv.FormatUint(uint64(value.(uint8)), 10)
-		case uint16:
-			litVal = strconv.FormatUint(uint64(value.(uint16)), 10)
-		case uint32:
-			litVal = strconv.FormatUint(uint64(value.(uint32)), 10)
-		case uint64:
-			litVal = strconv.FormatUint(value.(uint64), 10)
-		case float32:
-			litVal = strconv.FormatFloat(float64(value.(float32)), 'f', 8, 32)
-		case float64:
-			litVal = strconv.FormatFloat(value.(float64), 'f', 11, 64)
-		case bool:
-			litVal = strconv.FormatBool(value.(bool))
-		case string:
-			// TODO: This opIs Postgres-specific
-			litVal = "'" + litVal + "'"
-		default:
-			panic("unrecognizable literal value type")
-		}
-		node = &LiteralNode{value: litVal}
-	}
+	node := &LiteralNode{value: convertValueToSQL(value)}
 	node.ColExp = node
 	return node
 }
@@ -424,6 +440,32 @@ func getExp(exp interface{}) ColExp {
 	return Literal(exp)
 }
 
+// Array.
+type ArrayNode struct {
+	BaseColExpNode
+	values []string
+}
+
+func (n *ArrayNode) toSQL(ctx *buildContext) {
+	ctx.buf.WriteString("'{")
+	for i, value := range n.values {
+		if i > 0 {
+			ctx.buf.WriteString(", ")
+		}
+		ctx.buf.WriteString(value)
+	}
+	ctx.buf.WriteString("}'")
+}
+
+func Array(values ... interface{}) *ArrayNode {
+	node := &ArrayNode{values: make([]string, len(values))}
+	for i, value := range values {
+		node.values[i] = convertValueToSQL(value)
+	}
+	node.ColExp = node
+	return node
+}
+
 // Column.
 type ColumnNode struct {
 	BaseColExpNode
@@ -431,7 +473,7 @@ type ColumnNode struct {
 	name   string
 }
 
-func (n *ColumnNode) toSQL(ctx *BuildContext) {
+func (n *ColumnNode) toSQL(ctx *buildContext) {
 	// TODO: This opIs Postgres-specific
 	ctx.buf.WriteString(ctx.QuoteObject(n.source.name()) + "." + ctx.QuoteObject(n.name))
 }
@@ -442,7 +484,7 @@ func (n *ColumnNode) collectColSources(collector map[string]ColSource) {
 }
 
 func (n *ColumnNode) As(alias string) *ColumnAliasNode {
-	return columnAlias(n, alias)
+	return ColumnAlias(n, alias)
 }
 
 func Column(src ColSource, cname string) *ColumnNode {
@@ -458,11 +500,7 @@ type ColumnAliasNode struct {
 	alias  string
 }
 
-func (n *ColumnAliasNode) ID() string {
-	return n.alias
-}
-
-func (n *ColumnAliasNode) toSQL(ctx *BuildContext) {
+func (n *ColumnAliasNode) toSQL(ctx *buildContext) {
 	name := ctx.QuoteObject(n.alias)
 	if ctx.state == buildContextStateDeclaration {
 		n.column.toSQL(ctx)
@@ -476,7 +514,7 @@ func (n *ColumnAliasNode) collectColSources(collector map[string]ColSource) {
 	col.collectColSources(collector)
 }
 
-func columnAlias(src *ColumnNode, alias string) *ColumnAliasNode {
+func ColumnAlias(src *ColumnNode, alias string) *ColumnAliasNode {
 	node := &ColumnAliasNode{column: src, alias: alias}
 	node.ColExp = node
 	return node
@@ -488,7 +526,7 @@ type GroupExpNode struct {
 	exp ColExp
 }
 
-func (n *GroupExpNode) toSQL(ctx *BuildContext) {
+func (n *GroupExpNode) toSQL(ctx *buildContext) {
 	ctx.buf.WriteByte('(')
 	n.exp.toSQL(ctx)
 	ctx.buf.WriteByte(')')
@@ -508,6 +546,22 @@ func G(exp ColExp) *GroupExpNode {
 	return Group(exp)
 }
 
+// Compound expressions
+type CompoundExp interface {
+	isCompoundExp()
+}
+
+func compoundExpToSQL(exp ColExp, ctx *buildContext) {
+	_, isCompound := exp.(CompoundExp)
+	if isCompound {
+		ctx.buf.WriteByte('(')
+		exp.toSQL(ctx)
+		ctx.buf.WriteByte(')')
+	} else {
+		exp.toSQL(ctx)
+	}
+}
+
 // Unary expressions
 type operatorPosition bool
 
@@ -523,17 +577,19 @@ type UnaryExpNode struct {
 	position operatorPosition
 }
 
+func (UnaryExpNode) isCompoundExp() {}
+
 func (n *UnaryExpNode) collectColSources(collector map[string]ColSource) {
 	n.exp.collectColSources(collector)
 }
 
-func (n *UnaryExpNode) toSQL(ctx *BuildContext) {
+func (n *UnaryExpNode) toSQL(ctx *buildContext) {
 	if !n.position {
-		ctx.buf.WriteString(n.op + " ")
-		n.exp.toSQL(ctx)
+		ctx.buf.WriteString(" " + n.op + " ")
+		compoundExpToSQL(n.exp, ctx)
 	} else {
-		n.exp.toSQL(ctx)
-		ctx.buf.WriteString(" " + n.op)
+		compoundExpToSQL(n.exp, ctx)
+		ctx.buf.WriteString(" " + n.op + " ")
 	}
 }
 
@@ -577,10 +633,12 @@ type BinaryExpNode struct {
 	op    string
 }
 
-func (n *BinaryExpNode) toSQL(ctx *BuildContext) {
-	n.left.toSQL(ctx)
+func (BinaryExpNode) isCompoundExp() {}
+
+func (n *BinaryExpNode) toSQL(ctx *buildContext) {
+	compoundExpToSQL(n.left, ctx)
 	ctx.buf.WriteString(" " + n.op + " ")
-	n.right.toSQL(ctx)
+	compoundExpToSQL(n.right, ctx)
 }
 
 func (n *BinaryExpNode) collectColSources(collector map[string]ColSource) {
@@ -654,14 +712,14 @@ type LogicalExpNode struct {
 	op string
 }
 
-func (n *LogicalExpNode) toSQL(ctx *BuildContext) {
+func (LogicalExpNode) isCompoundExp() {}
+
+func (n *LogicalExpNode) toSQL(ctx *buildContext) {
 	for i, exp := range n.expList {
 		if i > 0 {
 			ctx.buf.WriteString(" " + n.op + " ")
 		}
-		ctx.buf.WriteByte('(')
-		exp.toSQL(ctx)
-		ctx.buf.WriteByte(')')
+		compoundExpToSQL(exp, ctx)
 	}
 }
 
@@ -696,12 +754,12 @@ func Or(exps ... interface{}) *LogicalExpNode {
 }
 
 // Function call expression.
-type FunctionCallNode struct {
+type FuncCallNode struct {
 	MultiExpNode
 	name string
 }
 
-func (n *FunctionCallNode) toSQL(ctx *BuildContext) {
+func (n *FuncCallNode) toSQL(ctx *buildContext) {
 	ctx.buf.WriteString(n.name)
 	ctx.buf.WriteByte('(')
 	for i, exp := range n.expList {
@@ -713,18 +771,24 @@ func (n *FunctionCallNode) toSQL(ctx *BuildContext) {
 	ctx.buf.WriteByte(')')
 }
 
-func FunctionCall(name string, args ... interface{}) *FunctionCallNode {
+func FuncCall(name string, args ... interface{}) *FuncCallNode {
 	exps := getExpList(args)
-	node := &FunctionCallNode{MultiExpNode: *MultiExp(exps), name: name}
+	node := &FuncCallNode{MultiExpNode: *MultiExp(exps), name: name}
 	node.ColExp = node
 	return node
 }
 
 // Return a function that can generate function calls to a specific function.
-func FunctionCallFactory(name string) func(...interface{}) *FunctionCallNode {
-	return func(args ... interface{}) *FunctionCallNode {
-		return FunctionCall(name, args...)
+type FuncCallFactory func(...interface{}) *FuncCallNode
+
+func CreateFuncCallFactory(name string) FuncCallFactory {
+	return func(args ... interface{}) *FuncCallNode {
+		return FuncCall(name, args...)
 	}
 }
 
 // TODO: Expressions that involve sub-queries (i.e. EXISTS, ALL, SOME).
+
+// TODO: Array accessor (i.e. '{2, 7, 3}'[1]).
+
+// TODO: Nested arrays.

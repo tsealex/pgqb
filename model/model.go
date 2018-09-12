@@ -17,7 +17,7 @@ type restaurantModel struct {
 }
 
 func (m *restaurantModel) As(alias string) *restaurantModel {
-	return newRestaurantModel(m.As(alias))
+	return newRestaurantModel(m.Model.As(alias))
 }
 
 func newRestaurantModel(src pgqb.Model) *restaurantModel {
@@ -57,7 +57,7 @@ func test() {
 	restA := RestaurantModel()
 	restB := RestaurantModel().As("RestaurantB")
 	restA.NumCustomer.Add(restB.NumCustomer).Gt(50)
-	now := pgqb.FunctionCallFactory("now")
+	now := pgqb.CreateFuncCallFactory("now")
 	now()
 	restA.InnerJoin(restB, restA.Name.Eq(restB.Name))
 }

@@ -4,7 +4,7 @@ import "bytes"
 
 type BuildContextMode uint64
 
-const ContextModeNone = BuildContextMode(0)
+const BuildContextModeNone = BuildContextMode(0)
 
 const (
 	ContextModeNamedArgument BuildContextMode = 1 << iota
@@ -13,11 +13,12 @@ const (
 type buildContextState uint8
 
 const (
+	buildContextStateNone buildContextState = iota
 	// Column declaration (i.e. during rendering the SELECT clause)
 	buildContextStateDeclaration buildContextState = iota
 )
 
-type BuildContext struct {
+type buildContext struct {
 	buf   bytes.Buffer
 	mode  BuildContextMode
 	state buildContextState
@@ -26,11 +27,11 @@ type BuildContext struct {
 	namedArgNum map[string]int
 }
 
-func (ctx *BuildContext) NamedArgumentMode() bool {
-	return ctx.mode&ContextModeNamedArgument != ContextModeNone
+func (ctx *buildContext) NamedArgumentMode() bool {
+	return ctx.mode&ContextModeNamedArgument != BuildContextModeNone
 }
 
-func (ctx *BuildContext) getArgNum(tag string) int {
+func (ctx *buildContext) getArgNum(tag string) int {
 	if tag == "" {
 		return ctx.nextArgNum()
 	}
@@ -43,11 +44,20 @@ func (ctx *BuildContext) getArgNum(tag string) int {
 	return argNum
 }
 
-func (ctx *BuildContext) nextArgNum() int {
+func (ctx *buildContext) nextArgNum() int {
 	ctx.currArgNum++
 	return ctx.currArgNum
 }
 
-func (ctx *BuildContext) QuoteObject(name string) string {
+func (ctx *buildContext) QuoteObject(name string) string {
 	return `"` + name + `"`
+}
+
+func NewBuildContext(mode BuildContextMode) *buildContext {
+	return &buildContext{
+		buf: *bytes.NewBuffer([]byte{}),
+		mode: mode,
+		state: buildContextStateNone,
+		namedArgNum: map[string]int{},
+	}
 }
