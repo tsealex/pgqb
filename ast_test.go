@@ -156,6 +156,10 @@ func TestAnd(t *testing.T) {
 	})
 }
 
+func TestArray(t *testing.T) {
+	assert.Equal(t, "'{}'", AstToSQL(Array()))
+}
+
 func TestFuncCall(t *testing.T) {
 	fn := FuncCall("MyFunc", 23, "test", Column(myTb, "Col"))
 	assert.Equal(t, fmt.Sprintf(`MyFunc(23, 'test', "%s"."Col")`, myTbTable), AstToSQL(fn))

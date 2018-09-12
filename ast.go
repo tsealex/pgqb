@@ -21,6 +21,7 @@ type ColSource interface {
 type TableExp interface {
 	astNode
 	isTableExp()
+	collectColSources(collector map[string]ColSource)
 
 	Join(joinType JoinType, dst TableExp, onExp ColExp) TableExp
 	InnerJoin(dst TableExp, onExp ColExp) TableExp
@@ -38,6 +39,8 @@ func (BaseTableExpNode) isAstNode() {}
 func (BaseTableExpNode) toSQL(ctx *buildContext) {
 	panic("not implemented")
 }
+
+func (BaseTableExpNode) collectColSources(collector map[string]ColSource) {}
 
 func (n *BaseTableExpNode) Join(joinType JoinType, dst TableExp, onExp ColExp) TableExp {
 	return Join(joinType, n.TableExp, dst, onExp)
@@ -72,6 +75,11 @@ func (n *TableNode) name() string {
 	return n.tbname
 }
 
+func (n *TableNode) collectColSources(collector map[string]ColSource) {
+	id := n.name()
+	collector[id] = n
+}
+
 func (n *TableNode) toSQL(ctx *buildContext) {
 	// TODO: This opIs Postgres-specific.
 	tbname := ctx.QuoteObject(n.tbname)
@@ -102,6 +110,11 @@ type TableAliasNode struct {
 	BaseTableExpNode
 	table *TableNode
 	alias string
+}
+
+func (n *TableAliasNode) collectColSources(collector map[string]ColSource) {
+	id := n.name()
+	collector[id] = n
 }
 
 func (n *TableAliasNode) toSQL(ctx *buildContext) {
@@ -150,6 +163,11 @@ type JoinNode struct {
 func (JoinNode) isTableExp() {}
 
 func (JoinNode) isAstNode() {}
+
+func (n *JoinNode) collectColSources(collector map[string]ColSource) {
+	n.src.collectColSources(collector)
+	n.dst.collectColSources(collector)
+}
 
 func (n *JoinNode) toSQL(ctx *buildContext) {
 	n.src.toSQL(ctx)
