@@ -7,6 +7,8 @@ type Context struct {
 	mode ContextMode
 }
 
+var contextWithNoMode = &Context{mode: ContextModeNone}
+
 func (ctx *Context) createBuildContext() *buildContext {
 	return newBuildContext(ctx.mode)
 }

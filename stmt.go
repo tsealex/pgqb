@@ -1,11 +1,18 @@
 package pgqb
 
+type Stmt interface {
+	isStmt()
+	toSQL(ctx *buildContext)
+}
+
 type SelectStmt struct {
-	ctx          *Context
+	ctx          *Context // TODO: Remove this.
 	selectClause *selectClause
 	fromClause   *fromClause
 	whereClause  *whereClause
 }
+
+func (SelectStmt) isStmt() {}
 
 func (s *SelectStmt) Select(exps ... interface{}) *SelectStmt {
 	if len(exps) == 0 {
@@ -49,13 +56,15 @@ func (s *SelectStmt) toSQL(ctx *buildContext) {
 		}
 		s.fromClause.fillMissingColSrc(usedColSrc)
 	}
+	origState := ctx.state
 	ctx.state = buildContextStateColumnDeclaration
 	clauseToSQL(s.selectClause, ctx)
-	ctx.state = buildContextStateNone
+	ctx.state = origState
 	clauseToSQL(s.fromClause, ctx)
 	clauseToSQL(s.whereClause, ctx)
 }
 
+// TODO: Make this a method of Context instead (i.e. ctx.ToSQL(selectStmt) -> string
 func (s *SelectStmt) ToSQL() string {
 	bCtx := s.ctx.createBuildContext()
 	s.toSQL(bCtx)

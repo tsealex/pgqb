@@ -822,7 +822,58 @@ func CreateFuncCallFactory(name string) FuncCallFactory {
 	}
 }
 
-// TODO: Expressions that involve sub-queries (i.e. EXISTS, ALL, SOME).
+// Expressions that involve sub-queries (i.e. EXISTS, ALL, SOME).
+// TODO: Add tests.
+type SubQueryExpNode struct {
+	BaseColExpNode
+	op         string
+	selectStmt *SelectStmt
+}
+
+func (n *SubQueryExpNode) toSQL(ctx *buildContext) {
+	ctx.buf.WriteString(n.op + " (")
+	origMode := ctx.mode
+	ctx.mode &= ^ContextModeAutoFrom
+	n.selectStmt.toSQL(ctx)
+	ctx.mode = origMode
+	ctx.buf.WriteByte(')')
+}
+
+func (n *SubQueryExpNode) collectColSources(collector colSrcMap) {
+	// TODO: Update this list as we add more clauses to SELECT stmt.
+	usedSrcMap := collectColSourcesFromClauses(n.selectStmt.whereClause, n.selectStmt.selectClause)
+	fromSrcMap := collectColSourcesFromClauses(n.selectStmt.fromClause)
+	difference := usedSrcMap.Subtract(fromSrcMap)
+	// Include all the column sources not specified in the subquery
+	for _, colSrc := range difference {
+		collector[colSrc.name()] = colSrc
+	}
+}
+
+func SubQueryExp(op string, stmt *SelectStmt) *SubQueryExpNode {
+	n := &SubQueryExpNode{op: op, selectStmt: stmt}
+	n.ColExp = n
+	return n
+}
+
+const (
+	opExists string = "EXISTS"
+	opALL           = "ALL"
+	opSome          = "SOME"
+	// TODO: More operators
+)
+
+func Exists(stmt *SelectStmt) *SubQueryExpNode {
+	return SubQueryExp(opExists, stmt)
+}
+
+func All(stmt *SelectStmt) *SubQueryExpNode {
+	return SubQueryExp(opALL, stmt)
+}
+
+func Some(stmt *SelectStmt) *SubQueryExpNode {
+	return SubQueryExp(opSome, stmt)
+}
 
 // TODO: Array accessor (i.e. '{2, 7, 3}'[1]).
 
