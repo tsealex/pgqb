@@ -2,12 +2,32 @@ package pgqb
 
 import "bytes"
 
-type BuildContextMode uint64
+// SQL context.
+type Context struct {
+	mode ContextMode
+}
 
-const BuildContextModeNone = BuildContextMode(0)
+func (ctx *Context) createBuildContext() *buildContext {
+	return newBuildContext(ctx.mode)
+}
+
+func (ctx *Context) Select(exps ... interface{}) *SelectStmt {
+	return newSelect(ctx, exps...)
+}
+
+// Create a context using default mode.
+func NewContext() *Context {
+	return &Context{mode: ContextModeAutoFrom}
+}
+
+//
+type ContextMode uint64
+
+const ContextModeNone = ContextMode(0)
 
 const (
-	ContextModeNamedArgument BuildContextMode = 1 << iota
+	ContextModeNamedArgument ContextMode = 1 << iota
+	ContextModeAutoFrom                  = 1 << iota
 )
 
 type buildContextState uint8
@@ -15,12 +35,12 @@ type buildContextState uint8
 const (
 	buildContextStateNone buildContextState = iota
 	// Column declaration (i.e. during rendering the SELECT clause)
-	buildContextStateDeclaration buildContextState = iota
+	buildContextStateColumnDeclaration = iota
 )
 
 type buildContext struct {
 	buf   bytes.Buffer
-	mode  BuildContextMode
+	mode  ContextMode
 	state buildContextState
 
 	currArgNum  int
@@ -28,7 +48,12 @@ type buildContext struct {
 }
 
 func (ctx *buildContext) NamedArgumentMode() bool {
-	return ctx.mode&ContextModeNamedArgument != BuildContextModeNone
+	return ctx.mode&ContextModeNamedArgument != ContextModeNone
+}
+
+// Automatically fill in missing column sources to the FROM clause.
+func (ctx *buildContext) AutoFrom() bool {
+	return ctx.mode&ContextModeAutoFrom != ContextModeNone
 }
 
 func (ctx *buildContext) getArgNum(tag string) int {
@@ -53,11 +78,24 @@ func (ctx *buildContext) QuoteObject(name string) string {
 	return `"` + name + `"`
 }
 
-func NewBuildContext(mode BuildContextMode) *buildContext {
+func newBuildContext(mode ContextMode) *buildContext {
 	return &buildContext{
-		buf: *bytes.NewBuffer([]byte{}),
-		mode: mode,
-		state: buildContextStateNone,
+		buf:         *bytes.NewBuffer([]byte{}),
+		mode:        mode,
+		state:       buildContextStateNone,
 		namedArgNum: map[string]int{},
 	}
+}
+
+// Table/view/alias name -> ColSource instance
+type colSrcMap map[string]ColSource
+
+func (m colSrcMap) Subtract(srcMap colSrcMap) []ColSource {
+	var res []ColSource
+	for s, colSrc := range m {
+		if _, in := srcMap[s]; !in {
+			res = append(res, colSrc)
+		}
+	}
+	return res
 }

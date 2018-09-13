@@ -21,7 +21,7 @@ type ColSource interface {
 type TableExp interface {
 	astNode
 	isTableExp()
-	collectColSources(collector map[string]ColSource)
+	collectColSources(collector colSrcMap)
 
 	Join(joinType JoinType, dst TableExp, onExp ColExp) TableExp
 	InnerJoin(dst TableExp, onExp ColExp) TableExp
@@ -40,7 +40,7 @@ func (BaseTableExpNode) toSQL(ctx *buildContext) {
 	panic("not implemented")
 }
 
-func (BaseTableExpNode) collectColSources(collector map[string]ColSource) {}
+func (BaseTableExpNode) collectColSources(collector colSrcMap) {}
 
 func (n *BaseTableExpNode) Join(joinType JoinType, dst TableExp, onExp ColExp) TableExp {
 	return Join(joinType, n.TableExp, dst, onExp)
@@ -75,7 +75,7 @@ func (n *TableNode) name() string {
 	return n.tbname
 }
 
-func (n *TableNode) collectColSources(collector map[string]ColSource) {
+func (n *TableNode) collectColSources(collector colSrcMap) {
 	id := n.name()
 	collector[id] = n
 }
@@ -112,7 +112,7 @@ type TableAliasNode struct {
 	alias string
 }
 
-func (n *TableAliasNode) collectColSources(collector map[string]ColSource) {
+func (n *TableAliasNode) collectColSources(collector colSrcMap) {
 	id := n.name()
 	collector[id] = n
 }
@@ -164,7 +164,7 @@ func (JoinNode) isTableExp() {}
 
 func (JoinNode) isAstNode() {}
 
-func (n *JoinNode) collectColSources(collector map[string]ColSource) {
+func (n *JoinNode) collectColSources(collector colSrcMap) {
 	n.src.collectColSources(collector)
 	n.dst.collectColSources(collector)
 }
@@ -188,7 +188,7 @@ func Join(joinType JoinType, src, dst TableExp, onExp ColExp) *JoinNode {
 type ColExp interface {
 	astNode
 	isColExp()
-	collectColSources(collector map[string]ColSource)
+	collectColSources(collector colSrcMap)
 	// Binary operations
 	Add(right interface{}) ColExp
 	Sub(right interface{}) ColExp
@@ -353,7 +353,7 @@ func (BaseColExpNode) toSQL(ctx *buildContext) {
 
 func (BaseColExpNode) isAstNode()                                       {}
 func (BaseColExpNode) isColExp()                                        {}
-func (BaseColExpNode) collectColSources(collector map[string]ColSource) {}
+func (BaseColExpNode) collectColSources(collector colSrcMap) {}
 
 // Placeholder for an argument.
 type ArgumentNode struct {
@@ -496,7 +496,7 @@ func (n *ColumnNode) toSQL(ctx *buildContext) {
 	ctx.buf.WriteString(ctx.QuoteObject(n.source.name()) + "." + ctx.QuoteObject(n.name))
 }
 
-func (n *ColumnNode) collectColSources(collector map[string]ColSource) {
+func (n *ColumnNode) collectColSources(collector colSrcMap) {
 	id := n.source.name()
 	collector[id] = n.source
 }
@@ -520,14 +520,14 @@ type ColumnAliasNode struct {
 
 func (n *ColumnAliasNode) toSQL(ctx *buildContext) {
 	name := ctx.QuoteObject(n.alias)
-	if ctx.state == buildContextStateDeclaration {
+	if ctx.state == buildContextStateColumnDeclaration {
 		n.column.toSQL(ctx)
 		ctx.buf.WriteByte(' ')
 	}
 	ctx.buf.WriteString(name)
 }
 
-func (n *ColumnAliasNode) collectColSources(collector map[string]ColSource) {
+func (n *ColumnAliasNode) collectColSources(collector colSrcMap) {
 	col := n.column
 	col.collectColSources(collector)
 }
@@ -550,7 +550,7 @@ func (n *GroupExpNode) toSQL(ctx *buildContext) {
 	ctx.buf.WriteByte(')')
 }
 
-func (n *GroupExpNode) collectColSources(collector map[string]ColSource) {
+func (n *GroupExpNode) collectColSources(collector colSrcMap) {
 	n.exp.collectColSources(collector)
 }
 
@@ -597,7 +597,7 @@ type UnaryExpNode struct {
 
 func (UnaryExpNode) isCompoundExp() {}
 
-func (n *UnaryExpNode) collectColSources(collector map[string]ColSource) {
+func (n *UnaryExpNode) collectColSources(collector colSrcMap) {
 	n.exp.collectColSources(collector)
 }
 
@@ -659,7 +659,7 @@ func (n *BinaryExpNode) toSQL(ctx *buildContext) {
 	compoundExpToSQL(n.right, ctx)
 }
 
-func (n *BinaryExpNode) collectColSources(collector map[string]ColSource) {
+func (n *BinaryExpNode) collectColSources(collector colSrcMap) {
 	n.left.collectColSources(collector)
 	n.right.collectColSources(collector)
 }
@@ -712,7 +712,7 @@ type MultiExpNode struct {
 	expList []ColExp
 }
 
-func (n *MultiExpNode) collectColSources(collector map[string]ColSource) {
+func (n *MultiExpNode) collectColSources(collector colSrcMap) {
 	for _, exp := range n.expList {
 		exp.collectColSources(collector)
 	}

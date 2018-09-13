@@ -16,7 +16,7 @@ func AstToSQL(node astNode) string {
 }
 
 func AstToSQLWithState(node astNode, state buildContextState) string {
-	ctx := NewBuildContext(BuildContextModeNone)
+	ctx := newBuildContext(ContextModeNone)
 	ctx.state = state
 	node.toSQL(ctx)
 	return ctx.buf.String()
@@ -107,7 +107,7 @@ func TestColumnAlias(t *testing.T) {
 	assert.Equal(t, `"SomeCol"`, AstToSQL(col))
 
 	assert.Equal(t, fmt.Sprintf(`"%s"."Col" "SomeCol"`, myTbTable),
-		AstToSQLWithState(col, buildContextStateDeclaration))
+		AstToSQLWithState(col, buildContextStateColumnDeclaration))
 }
 
 func TestBaseColExpNode_Add(t *testing.T) {
