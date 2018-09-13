@@ -146,10 +146,10 @@ func TestSQLLiteral(t *testing.T) {
 func TestAnd(t *testing.T) {
 	col := Column(myTb, "Col").As("NewCol")
 	a := And(true, col.Gt(75), col.Lte(100), col.Ne(88))
-	assert.Equal(t, `true AND ("NewCol" > 75) AND ("NewCol" <= 100) AND ("NewCol" != 88)`, AstToSQL(a))
+	assert.Equal(t, `true AND "NewCol" > 75 AND "NewCol" <= 100 AND "NewCol" != 88`, AstToSQL(a))
 
 	a = And(true, col.Gt(75), And(col.Lte(100), col.Ne(88)))
-	assert.Equal(t, `true AND ("NewCol" > 75) AND (("NewCol" <= 100) AND ("NewCol" != 88))`, AstToSQL(a))
+	assert.Equal(t, `true AND "NewCol" > 75 AND ("NewCol" <= 100 AND "NewCol" != 88)`, AstToSQL(a))
 
 	assert.Panics(t, func() {
 		And()

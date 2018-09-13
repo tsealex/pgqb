@@ -351,8 +351,8 @@ func (BaseColExpNode) toSQL(ctx *buildContext) {
 	panic("not implemented")
 }
 
-func (BaseColExpNode) isAstNode()                                       {}
-func (BaseColExpNode) isColExp()                                        {}
+func (BaseColExpNode) isAstNode()                            {}
+func (BaseColExpNode) isColExp()                             {}
 func (BaseColExpNode) collectColSources(collector colSrcMap) {}
 
 // Placeholder for an argument.
@@ -565,12 +565,12 @@ func G(exp ColExp) *GroupExpNode {
 }
 
 // Compound expressions
-type CompoundExp interface {
+type compoundExp interface {
 	isCompoundExp()
 }
 
 func compoundExpToSQL(exp ColExp, ctx *buildContext) {
-	_, isCompound := exp.(CompoundExp)
+	_, isCompound := exp.(compoundExp)
 	if isCompound {
 		ctx.buf.WriteByte('(')
 		exp.toSQL(ctx)
@@ -725,10 +725,27 @@ func MultiExp(expList []ColExp) *MultiExpNode {
 }
 
 // Logical operations.
+type logicalExp interface {
+	isLogicalExp()
+}
+
 type LogicalExpNode struct {
 	MultiExpNode
 	op string
 }
+
+func logicalExpToSQL(exp ColExp, ctx *buildContext) {
+	_, isLogical := exp.(logicalExp)
+	if isLogical {
+		ctx.buf.WriteByte('(')
+		exp.toSQL(ctx)
+		ctx.buf.WriteByte(')')
+	} else {
+		exp.toSQL(ctx)
+	}
+}
+
+func (LogicalExpNode) isLogicalExp() {}
 
 func (LogicalExpNode) isCompoundExp() {}
 
@@ -737,7 +754,7 @@ func (n *LogicalExpNode) toSQL(ctx *buildContext) {
 		if i > 0 {
 			ctx.buf.WriteString(" " + n.op + " ")
 		}
-		compoundExpToSQL(exp, ctx)
+		logicalExpToSQL(exp, ctx)
 	}
 }
 

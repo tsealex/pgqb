@@ -12,7 +12,7 @@ func TestSelect(t *testing.T) {
 	c2 := Column(t1, "city")
 
 	sql := strings.Trim(NewContext().Select(c1, c2).Where(c2.Ne("New York City")).ToSQL(), " ")
-	assert.Equal(t, `SELECT "school"."name", "school"."city" FROM "public"."school" WHERE ("school"."city" != 'New York City')`, sql)
+	assert.Equal(t, `SELECT "school"."name", "school"."city" FROM "public"."school" WHERE "school"."city" != 'New York City'`, sql)
 
 	t2 := Table("public", "city")
 	e1 := Column(t2, "name")
