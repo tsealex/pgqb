@@ -1006,5 +1006,3 @@ func SubQueryTableExp(stmt *SelectStmt, alias string) *SubQueryTableExpNode {
 // TODO: Array accessor (i.e. '{2, 7, 3}'[1]).
 
 // TODO: Nested arrays.
-
-// TODO: Implement As for all column expressions.
