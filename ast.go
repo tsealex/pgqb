@@ -330,6 +330,10 @@ func (n *BaseColExpNode) Intersect(right interface{}) ColExp {
 	return BinaryExp(n.ColExp, opIntersect, getExp(right))
 }
 
+func (n *BaseColExpNode) In(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opIn, getExp(right))
+}
+
 func (n *BaseColExpNode) BitAnd(right interface{}) ColExp {
 	return BinaryExp(n.ColExp, opBitAnd, getExp(right))
 }
@@ -396,7 +400,7 @@ type SQLLiteral interface {
 	GetSQLRepr() string
 }
 
-func convertValueToSQL(value interface{}) string {
+func convertValueToLiteral(value interface{}) string {
 	if value == nil {
 		return "NULL"
 	}
@@ -453,7 +457,7 @@ func (n *LiteralNode) toSQL(ctx *buildContext) {
 }
 
 func Literal(value interface{}) *LiteralNode {
-	node := &LiteralNode{value: convertValueToSQL(value)}
+	node := &LiteralNode{value: convertValueToLiteral(value)}
 	node.ColExp = node
 	return node
 }
@@ -485,7 +489,33 @@ func (n *ArrayNode) toSQL(ctx *buildContext) {
 func Array(values ... interface{}) *ArrayNode {
 	node := &ArrayNode{values: make([]string, len(values))}
 	for i, value := range values {
-		node.values[i] = convertValueToSQL(value)
+		node.values[i] = convertValueToLiteral(value)
+	}
+	node.ColExp = node
+	return node
+}
+
+// Tuple.
+type TupleNode struct {
+	BaseColExpNode
+	values []string
+}
+
+func (n *TupleNode) toSQL(ctx *buildContext) {
+	ctx.buf.WriteByte('(')
+	for i, value := range n.values {
+		if i > 0 {
+			ctx.buf.WriteString(", ")
+		}
+		ctx.buf.WriteString(value)
+	}
+	ctx.buf.WriteByte(')')
+}
+
+func Tuple(values ... interface{}) *TupleNode {
+	node := &TupleNode{values: make([]string, len(values))}
+	for i, value := range values {
+		node.values[i] = convertValueToLiteral(value)
 	}
 	node.ColExp = node
 	return node
@@ -800,6 +830,7 @@ const (
 	opContainedBy        = "<@"
 	opUnion              = "||"
 	opIntersect          = "&&"
+	opIn                 = "IN"
 	// TODO: More array operators
 )
 
