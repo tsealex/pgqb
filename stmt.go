@@ -16,6 +16,7 @@ type SelectStmt struct {
 	havingClause  *havingClause
 	orderByClause *orderByClause
 	limit         int
+	offset        int
 }
 
 func (SelectStmt) isStmt() {}
@@ -91,6 +92,11 @@ func (s *SelectStmt) Limit(n int) *SelectStmt {
 	return s
 }
 
+func (s *SelectStmt) Offset(n int) *SelectStmt {
+	s.offset = n
+	return s
+}
+
 func (s *SelectStmt) toSQL(ctx *buildContext) {
 	if ctx.AutoFrom() {
 		usedColSrc := collectColSourcesFromClauses(
@@ -113,11 +119,14 @@ func (s *SelectStmt) toSQL(ctx *buildContext) {
 	if s.limit > 0 {
 		ctx.buf.WriteString("LIMIT " + strconv.FormatInt(int64(s.limit), 10) + " ")
 	}
+	if s.offset > 0 {
+		ctx.buf.WriteString("OFFSET " + strconv.FormatInt(int64(s.offset), 10) + " ")
+	}
 }
 
 // Create a snapshot (deep-copy) of the Stmt object.
 func (s *SelectStmt) Fix() *SelectStmt {
-	res := &SelectStmt{limit: s.limit}
+	res := &SelectStmt{limit: s.limit, offset: s.offset}
 	copyClauseTo(s.selectClause, res.selectClause)
 	copyClauseTo(s.whereClause, res.whereClause)
 	copyClauseTo(s.fromClause, res.fromClause)
