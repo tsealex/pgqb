@@ -10,6 +10,7 @@ func TestSelect(t *testing.T) {
 	t1 := Table("public", "school")
 	c1 := Column(t1, "name")
 	c2 := Column(t1, "city")
+	c3 := Column(t1, "enrollment")
 
 	ctx := NewContext()
 	sql := strings.Trim(ctx.ToSQL(Select(c1, c2).Where(c2.Ne("New York City"))), " ")
@@ -28,5 +29,14 @@ func TestSelect(t *testing.T) {
 	// Test auto-including tables behavior when SubQueryExp presents
 	sql = strings.Trim(ctx.ToSQL(Select(Exists(Select(e1.Eq(c2)).From(t2)))), " ")
 	assert.Equal(t, `SELECT EXISTS (SELECT "city"."name" = "school"."city" FROM "public"."city" ) FROM "public"."school"`, sql)
+
+	// Test GroupBy
+	max := CreateFuncCallFactory("max")
+	sql = strings.Trim(ctx.ToSQL(Select(max(c3)).Where(c2.Eq(e1)).GroupBy(e2)), " ")
+	assert.Equal(t, `SELECT max("school"."enrollment") FROM "public"."school", "public"."city" WHERE "school"."city" = "city"."name" GROUP BY "city"."state"`, sql)
+
+	sql = strings.Trim(ctx.ToSQL(Select(max(c3)).From(t1.InnerJoin(t2, c2.Eq(e1))).GroupBy(e2)),
+		" ")
+	assert.Equal(t, `SELECT max("school"."enrollment") FROM "public"."school" INNER JOIN "public"."city" ON ("school"."city" = "city"."name") GROUP BY "city"."state"`, sql)
 
 }

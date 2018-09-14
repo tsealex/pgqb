@@ -11,9 +11,51 @@ type clause interface {
 	copyTo(cp clause)
 }
 
-// newSelect clause.
-type selectClause struct {
+type baseClause struct{}
+
+func (baseClause) toSQL(ctx *buildContext) {}
+
+func (baseClause) collectColSources(collector colSrcMap) {}
+
+func (baseClause) isClause() {}
+
+func (baseClause) copyTo(cp clause) {}
+
+// Base class for clauses that involve a list of ColExp.
+type baseColExpListClause struct {
+	baseClause
 	colExpList []ColExp
+}
+
+func (c *baseColExpListClause) toSQL(ctx *buildContext) {
+	for i, colExp := range c.colExpList {
+		if i > 0 {
+			ctx.buf.WriteString(", ")
+		}
+		colExp.toSQL(ctx)
+	}
+}
+
+func (c *baseColExpListClause) collectColSources(collector colSrcMap) {
+	for _, colExp := range c.colExpList {
+		colExp.collectColSources(collector)
+	}
+}
+
+func (c *baseColExpListClause) addColExp(exps ... interface{}) {
+	c.colExpList = append(c.colExpList, getExpList(exps)...)
+}
+
+func (c *baseColExpListClause) copyTo(cp clause) {
+	var colExpList []ColExp
+	copy(colExpList, c.colExpList)
+	clause := baseColExpListClause{colExpList: colExpList}
+	cp = &clause
+}
+
+// Select clause.
+type selectClause struct {
+	baseColExpListClause
 }
 
 func (c *selectClause) toSQL(ctx *buildContext) {
@@ -21,33 +63,35 @@ func (c *selectClause) toSQL(ctx *buildContext) {
 		return
 	}
 	ctx.buf.WriteString("SELECT ")
-	for i, colExp := range c.colExpList {
-		if i > 0 {
-			ctx.buf.WriteString(", ")
-		}
-		colExp.toSQL(ctx)
-	}
+	c.baseColExpListClause.toSQL(ctx)
 	ctx.buf.WriteByte(' ')
 }
 
-func (c *selectClause) collectColSources(collector colSrcMap) {
-	for _, colExp := range c.colExpList {
-		colExp.collectColSources(collector)
-	}
-}
-
-func (c *selectClause) addColExp(exps ... interface{}) {
-	c.colExpList = append(c.colExpList, getExpList(exps)...)
-}
-
 func (c *selectClause) copyTo(cp clause) {
-	var colExpList []ColExp
-	copy(colExpList, c.colExpList)
-	clause := selectClause{colExpList: colExpList}
+	clause := selectClause{}
+	c.baseColExpListClause.copyTo(&clause.baseColExpListClause)
 	cp = &clause
 }
 
-func (selectClause) isClause() {}
+// Group by clause.
+type groupByClause struct {
+	baseColExpListClause
+}
+
+func (c *groupByClause) toSQL(ctx *buildContext) {
+	if len(c.colExpList) == 0 {
+		return
+	}
+	ctx.buf.WriteString("GROUP BY ")
+	c.baseColExpListClause.toSQL(ctx)
+	ctx.buf.WriteByte(' ')
+}
+
+func (c *groupByClause) copyTo(cp clause) {
+	clause := groupByClause{}
+	c.baseColExpListClause.copyTo(&clause.baseColExpListClause)
+	cp = &clause
+}
 
 // Where clause.
 type whereClause struct {
@@ -73,7 +117,7 @@ func (c *whereClause) addPredicate(predicates ... interface{}) {
 		tmp = append(tmp, c.predicate)
 	}
 	tmp = append(tmp, predicates...)
-	if len(tmp) > 1 {
+	if len(predicates) > 0 {
 		c.predicate = And(tmp...)
 	}
 }
@@ -172,7 +216,7 @@ func (c *setClause) copyTo(cp clause) {
 
 func (setClause) isClause() {}
 
-// INSERT clause.
+// Insert clause.
 type insertClause struct {
 	table      *TableNode
 	columns    []string // List of column names.

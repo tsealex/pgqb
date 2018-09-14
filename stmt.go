@@ -5,10 +5,13 @@ type Stmt interface {
 	toSQL(ctx *buildContext)
 }
 
+// Select statement.
 type SelectStmt struct {
-	selectClause *selectClause
-	fromClause   *fromClause
-	whereClause  *whereClause
+	selectClause  *selectClause
+	fromClause    *fromClause
+	whereClause   *whereClause
+	groupByClause *groupByClause
+	limit         int
 }
 
 func (SelectStmt) isStmt() {}
@@ -46,10 +49,22 @@ func (s *SelectStmt) Where(exps ... interface{}) *SelectStmt {
 	return s
 }
 
+func (s *SelectStmt) GroupBy(exps ... interface{}) *SelectStmt {
+	if len(exps) == 0 {
+		return s
+	}
+	if s.groupByClause == nil {
+		s.groupByClause = &groupByClause{}
+	}
+	s.groupByClause.addColExp(exps...)
+	return s
+}
+
 func (s *SelectStmt) toSQL(ctx *buildContext) {
-	// TODO: When GROUP BY, HAVING are added, modify this list
+	// TODO: When HAVING are added, modify this list
 	if ctx.AutoFrom() {
-		usedColSrc := collectColSourcesFromClauses(s.selectClause, s.whereClause)
+		usedColSrc := collectColSourcesFromClauses(
+			s.selectClause, s.whereClause, s.groupByClause)
 		if s.fromClause == nil {
 			s.fromClause = &fromClause{}
 		}
@@ -61,6 +76,7 @@ func (s *SelectStmt) toSQL(ctx *buildContext) {
 	ctx.state = origState
 	clauseToSQL(s.fromClause, ctx)
 	clauseToSQL(s.whereClause, ctx)
+	clauseToSQL(s.groupByClause, ctx)
 }
 
 // Create a snapshot (deep-copy) of the Stmt object.
