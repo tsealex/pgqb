@@ -642,6 +642,22 @@ func (n *UnaryExpNode) toSQL(ctx *buildContext) {
 	}
 }
 
+type UnaryExpFactory func(exp interface{}) *UnaryExpNode
+
+func createUnaryExpFactory(op string, pos operatorPosition) UnaryExpFactory {
+	return func(exp interface{}) *UnaryExpNode {
+		return UnaryExp(getExp(exp), op, pos)
+	}
+}
+
+func CreateLeftUnaryExpFactory(op string) UnaryExpFactory {
+	return createUnaryExpFactory(op, posLeft)
+}
+
+func CreateRightUnaryExpFactory(op string) UnaryExpFactory {
+	return createUnaryExpFactory(op, posRight)
+}
+
 var isAlphanumeric = regexp.MustCompile(`^[a-zA-Z0-9]+$`).MatchString
 
 func (n *UnaryExpNode) isOpAlphanumeric() bool {
@@ -735,6 +751,14 @@ func (n *BinaryExpNode) toSQL(ctx *buildContext) {
 func (n *BinaryExpNode) collectColSources(collector colSrcMap) {
 	n.left.collectColSources(collector)
 	n.right.collectColSources(collector)
+}
+
+type BinaryExpFactory func(left, right interface{}) *BinaryExpNode
+
+func CreateBinaryExpFactory(op string) BinaryExpFactory {
+	return func(left, right interface{}) *BinaryExpNode {
+		return BinaryExp(getExp(left), op, getExp(right))
+	}
 }
 
 func BinaryExp(left ColExp, op string, right ColExp) *BinaryExpNode {
