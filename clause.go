@@ -8,7 +8,7 @@ type clause interface {
 	toSQL(ctx *buildContext)
 	collectColSources(collector colSrcMap)
 	isClause()
-	copyTo(cp clause)
+	deepcopy() clause
 }
 
 type baseClause struct{}
@@ -19,7 +19,9 @@ func (baseClause) collectColSources(collector colSrcMap) {}
 
 func (baseClause) isClause() {}
 
-func (baseClause) copyTo(cp clause) {}
+func (baseClause) deepcopy() clause {
+	return nil
+}
 
 // Base class for clauses that involve a list of ColExp.
 type baseColExpListClause struct {
@@ -55,11 +57,10 @@ func (c *baseColExpListClause) addColExp(exps ... interface{}) {
 	c.colExpList = append(c.colExpList, getExpList(exps)...)
 }
 
-func (c *baseColExpListClause) copyTo(cp clause) {
-	var colExpList []ColExp
+func (c *baseColExpListClause) deepcopy() clause {
+	var colExpList = make([]ColExp, len(c.colExpList))
 	copy(colExpList, c.colExpList)
-	clause := baseColExpListClause{colExpList: colExpList}
-	cp = &clause
+	return &baseColExpListClause{colExpList: colExpList}
 }
 
 // Select clause.
@@ -71,10 +72,9 @@ func (c *selectClause) toSQL(ctx *buildContext) {
 	c.baseColExpListClause.toSQLWithKeyword("SELECT", ctx)
 }
 
-func (c *selectClause) copyTo(cp clause) {
-	clause := selectClause{}
-	c.baseColExpListClause.copyTo(&clause.baseColExpListClause)
-	cp = &clause
+func (c *selectClause) deepcopy() clause {
+	var baseColExpListClause = c.baseColExpListClause.deepcopy().(*baseColExpListClause)
+	return &selectClause{baseColExpListClause: *baseColExpListClause}
 }
 
 // Group by clause.
@@ -86,10 +86,9 @@ func (c *groupByClause) toSQL(ctx *buildContext) {
 	c.baseColExpListClause.toSQLWithKeyword("GROUP BY", ctx)
 }
 
-func (c *groupByClause) copyTo(cp clause) {
-	clause := groupByClause{}
-	c.baseColExpListClause.copyTo(&clause.baseColExpListClause)
-	cp = &clause
+func (c *groupByClause) deepcopy() clause {
+	var baseColExpListClause = c.baseColExpListClause.deepcopy().(*baseColExpListClause)
+	return &groupByClause{baseColExpListClause: *baseColExpListClause}
 }
 
 // Order by clause.
@@ -101,10 +100,9 @@ func (c *orderByClause) toSQL(ctx *buildContext) {
 	c.baseColExpListClause.toSQLWithKeyword("ORDER BY", ctx)
 }
 
-func (c *orderByClause) copyTo(cp clause) {
-	clause := orderByClause{}
-	c.baseColExpListClause.copyTo(&clause.baseColExpListClause)
-	cp = &clause
+func (c *orderByClause) deepcopy() clause {
+	var baseColExpListClause = c.baseColExpListClause.deepcopy().(*baseColExpListClause)
+	return &orderByClause{baseColExpListClause: *baseColExpListClause}
 }
 
 func (c *orderByClause) addColExp(exps ... interface{}) {
@@ -152,8 +150,8 @@ func (c *basePredicateClause) addPredicate(predicates ... interface{}) {
 	}
 }
 
-func (c basePredicateClause) copyTo(cp clause) {
-	cp = &c
+func (c basePredicateClause) deepcopy() clause {
+	return &c
 }
 
 // Where clause.
@@ -165,10 +163,9 @@ func (c *whereClause) toSQL(ctx *buildContext) {
 	c.basePredicateClause.toSQLWithKeyword("WHERE", ctx)
 }
 
-func (c *whereClause) copyTo(cp clause) {
-	res := &whereClause{}
-	c.basePredicateClause.copyTo(&res.basePredicateClause)
-	cp = res
+func (c *whereClause) deepcopy() clause {
+	var basePredicateClause = c.basePredicateClause.deepcopy().(*basePredicateClause)
+	return &whereClause{basePredicateClause: *basePredicateClause}
 }
 
 // Having clause.
@@ -180,10 +177,9 @@ func (c *havingClause) toSQL(ctx *buildContext) {
 	c.basePredicateClause.toSQLWithKeyword("HAVING", ctx)
 }
 
-func (c *havingClause) copyTo(cp clause) {
-	res := &whereClause{}
-	c.basePredicateClause.copyTo(&res.basePredicateClause)
-	cp = res
+func (c *havingClause) deepcopy() clause {
+	var basePredicateClause = c.basePredicateClause.deepcopy().(*basePredicateClause)
+	return &havingClause{basePredicateClause: *basePredicateClause}
 }
 
 // From clause.
@@ -225,11 +221,10 @@ func (c *fromClause) fillMissingColSrc(colSrcMap colSrcMap) {
 	}
 }
 
-func (c *fromClause) copyTo(cp clause) {
-	var tbExpList []TableExp
+func (c *fromClause) deepcopy() clause {
+	var tbExpList = make([]TableExp, len(c.tbExpList))
 	copy(tbExpList, c.tbExpList)
-	clause := fromClause{tbExpList: tbExpList}
-	cp = &clause
+	return &fromClause{tbExpList: tbExpList}
 }
 
 func (fromClause) isClause() {}
@@ -263,13 +258,12 @@ func (c *setClause) collectColSources(collector colSrcMap) {
 	}
 }
 
-func (c *setClause) copyTo(cp clause) {
+func (c *setClause) deepcopy() clause {
 	setExpMap := make(map[string]ColExp, len(c.setExpMap))
 	for k, v := range c.setExpMap {
 		setExpMap[k] = v
 	}
-	clause := setClause{setExpMap: setExpMap}
-	cp = &clause
+	return &setClause{setExpMap: setExpMap}
 }
 
 func (setClause) isClause() {}
@@ -319,13 +313,12 @@ func (c *insertClause) collectColSources(collector colSrcMap) {
 	}
 }
 
-func (c *insertClause) copyTo(cp clause) {
-	var columns []string
-	var valuesList [][]ColExp
+func (c *insertClause) deepcopy() clause {
+	var columns = make([]string, len(c.columns))
+	var valuesList = make([][]ColExp, len(c.valuesList))
 	copy(columns, c.columns)
 	copy(valuesList, c.valuesList)
-	clause := insertClause{table: c.table, columns: columns, valuesList: valuesList}
-	cp = &clause
+	return &insertClause{table: c.table, columns: columns, valuesList: valuesList}
 }
 
 func (insertClause) isClause() {}

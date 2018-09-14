@@ -1,6 +1,9 @@
 package pgqb
 
-import "strconv"
+import (
+	"strconv"
+	"reflect"
+)
 
 type Stmt interface {
 	isStmt()
@@ -125,14 +128,15 @@ func (s *SelectStmt) toSQL(ctx *buildContext) {
 }
 
 // Create a snapshot (deep-copy) of the Stmt object.
-func (s *SelectStmt) Fix() *SelectStmt {
+func (s *SelectStmt) Make() *SelectStmt {
 	res := &SelectStmt{limit: s.limit, offset: s.offset}
-	copyClauseTo(s.selectClause, res.selectClause)
-	copyClauseTo(s.whereClause, res.whereClause)
-	copyClauseTo(s.fromClause, res.fromClause)
-	copyClauseTo(s.groupByClause, res.groupByClause)
-	copyClauseTo(s.havingClause, res.havingClause)
-	copyClauseTo(s.orderByClause, res.orderByClause)
+
+	res.selectClause = deepcopyClause(s.selectClause).(*selectClause)
+	res.whereClause = deepcopyClause(s.whereClause).(*whereClause)
+	res.fromClause = deepcopyClause(s.fromClause).(*fromClause)
+	res.groupByClause = deepcopyClause(s.groupByClause).(*groupByClause)
+	res.havingClause = deepcopyClause(s.havingClause).(*havingClause)
+	res.orderByClause = deepcopyClause(s.orderByClause).(*orderByClause)
 	return res
 }
 
@@ -143,8 +147,9 @@ func Select(exps ... interface{}) *SelectStmt {
 }
 
 // Helper for deep-copying a clause.
-func copyClauseTo(src clause, dst clause) {
+func deepcopyClause(src clause) interface{} {
 	if !isNull(src) {
-		src.copyTo(dst)
+		return src.deepcopy()
 	}
+	return reflect.New(reflect.TypeOf(src)).Elem().Interface()
 }
