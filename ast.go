@@ -484,10 +484,20 @@ func Array(values ... interface{}) *ArrayNode {
 	return node
 }
 
-// Column.
-type ColumnNode struct {
+// Node that involves a column source.
+type BaseColumnSourceNode struct {
 	BaseColExpNode
 	source ColSource
+}
+
+func (n *BaseColumnSourceNode) collectColSources(collector colSrcMap) {
+	id := n.source.name()
+	collector[id] = n.source
+}
+
+// Column.
+type ColumnNode struct {
+	BaseColumnSourceNode
 	name   string
 }
 
@@ -496,17 +506,13 @@ func (n *ColumnNode) toSQL(ctx *buildContext) {
 	ctx.buf.WriteString(ctx.QuoteObject(n.source.name()) + "." + ctx.QuoteObject(n.name))
 }
 
-func (n *ColumnNode) collectColSources(collector colSrcMap) {
-	id := n.source.name()
-	collector[id] = n.source
-}
-
 func (n *ColumnNode) As(alias string) *ColumnAliasNode {
 	return ColumnAlias(n, alias)
 }
 
 func Column(src ColSource, cname string) *ColumnNode {
-	node := &ColumnNode{source: src, name: cname}
+	node := &ColumnNode{name: cname}
+	node.source = src
 	node.ColExp = node
 	return node
 }
@@ -534,6 +540,22 @@ func (n *ColumnAliasNode) collectColSources(collector colSrcMap) {
 
 func ColumnAlias(src *ColumnNode, alias string) *ColumnAliasNode {
 	node := &ColumnAliasNode{column: src, alias: alias}
+	node.ColExp = node
+	return node
+}
+
+// All columns.
+type StarNode struct {
+	BaseColumnSourceNode
+}
+
+func (n *StarNode) toSQL(ctx *buildContext) {
+	ctx.buf.WriteString(ctx.QuoteObject(n.source.name()) + ".*")
+}
+
+func Star(src ColSource) *StarNode {
+	node := &StarNode{}
+	node.source = src
 	node.ColExp = node
 	return node
 }
@@ -905,7 +927,6 @@ func SubQueryTableExp(stmt *SelectStmt, alias string) *SubQueryTableExpNode {
 	node.TableExp = node
 	return node
 }
-
 
 // TODO: Array accessor (i.e. '{2, 7, 3}'[1]).
 

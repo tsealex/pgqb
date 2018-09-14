@@ -4,6 +4,7 @@ import (
 	"time"
 	"testing"
 	"github.com/stretchr/testify/assert"
+	"strings"
 )
 
 type restaurantModel struct {
@@ -19,6 +20,12 @@ type restaurantModel struct {
 
 func (m *restaurantModel) As(alias string) *restaurantModel {
 	return newRestaurantModel(m.Model.As(alias))
+}
+
+func (m *restaurantModel) all() []ColExp {
+	return []ColExp{
+		m.Id, m.Name, m.Location, m.OpenTime, m.CloseTime, m.OwnerId, m.NumCustomer,
+	}
 }
 
 func newRestaurantModel(src Model) *restaurantModel {
@@ -62,4 +69,12 @@ func TestModel(t *testing.T) {
 
 	tnode := restA.InnerJoin(restB, restA.Name.Eq(restB.Name))
 	assert.Equal(t, `"public"."Restaurant" INNER JOIN "public"."Restaurant" "RestaurantB" ON ("Restaurant"."Name" = "RestaurantB"."Name")`,AstToSQL(tnode))
+}
+
+func TestSelectModel(t *testing.T) {
+	restA := RestaurantModel()
+	restB := RestaurantModel().As("RestaurantB")
+	sql := strings.Trim(NewContext().ToSQL(Select(Star(restB.Model)).Where(
+		restB.OwnerId.Eq(restA.OwnerId), restB.OwnerId.Eq(200))), " ")
+	assert.Equal(t, `SELECT "RestaurantB".* FROM "public"."Restaurant" "RestaurantB", "public"."Restaurant" WHERE "RestaurantB"."OwnerId" = "Restaurant"."OwnerId" AND "RestaurantB"."OwnerId" = 200`, sql)
 }

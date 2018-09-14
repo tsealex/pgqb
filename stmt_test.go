@@ -21,9 +21,12 @@ func TestSelect(t *testing.T) {
 	sql = strings.Trim(ctx.ToSQL(Select(c1, e1.As("city"), e2).From(t1)), " ")
 	assert.Equal(t, `SELECT "school"."name", "city"."name" "city", "city"."state" FROM "public"."school", "public"."city"`, sql)
 
-
 	sql = strings.Trim(ctx.ToSQL(Select(c1, e1.As("city"), e2).
 		From(t1.InnerJoin(t2, c2.Eq(e1)))), " ")
 	assert.Equal(t, `SELECT "school"."name", "city"."name" "city", "city"."state" FROM "public"."school" INNER JOIN "public"."city" ON ("school"."city" = "city"."name")`, sql)
+
+	// Test auto-including tables behavior when SubQueryExp presents
+	sql = strings.Trim(ctx.ToSQL(Select(Exists(Select(e1.Eq(c2)).From(t2)))), " ")
+	assert.Equal(t, `SELECT EXISTS (SELECT "city"."name" = "school"."city" FROM "public"."city" ) FROM "public"."school"`, sql)
 
 }

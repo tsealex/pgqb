@@ -6,7 +6,6 @@ type Stmt interface {
 }
 
 type SelectStmt struct {
-	ctx          *Context // TODO: Remove this.
 	selectClause *selectClause
 	fromClause   *fromClause
 	whereClause  *whereClause
@@ -64,6 +63,14 @@ func (s *SelectStmt) toSQL(ctx *buildContext) {
 	clauseToSQL(s.whereClause, ctx)
 }
 
+// Create a snapshot (deep-copy) of the Stmt object.
+func (s *SelectStmt) Fix() *SelectStmt {
+	res := &SelectStmt{}
+	s.selectClause.copyTo(res.selectClause)
+	s.whereClause.copyTo(res.whereClause)
+	s.fromClause.copyTo(res.fromClause)
+	return res
+}
 
 func Select(exps ... interface{}) *SelectStmt {
 	res := &SelectStmt{}

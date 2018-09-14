@@ -8,6 +8,7 @@ type clause interface {
 	toSQL(ctx *buildContext)
 	collectColSources(collector colSrcMap)
 	isClause()
+	copyTo(cp clause)
 }
 
 // newSelect clause.
@@ -39,6 +40,13 @@ func (c *selectClause) addColExp(exps ... interface{}) {
 	c.colExpList = append(c.colExpList, getExpList(exps)...)
 }
 
+func (c *selectClause) copyTo(cp clause) {
+	var colExpList []ColExp
+	copy(colExpList, c.colExpList)
+	clause := selectClause{colExpList: colExpList}
+	cp = &clause
+}
+
 func (selectClause) isClause() {}
 
 // Where clause.
@@ -65,9 +73,13 @@ func (c *whereClause) addPredicate(predicates ... interface{}) {
 		tmp = append(tmp, c.predicate)
 	}
 	tmp = append(tmp, predicates...)
-	if len(tmp) > 0 {
+	if len(tmp) > 1 {
 		c.predicate = And(tmp...)
 	}
+}
+
+func (c whereClause) copyTo(cp clause) {
+	cp = &c
 }
 
 func (whereClause) isClause() {}
@@ -111,6 +123,13 @@ func (c *fromClause) fillMissingColSrc(colSrcMap colSrcMap) {
 	}
 }
 
+func (c *fromClause) copyTo(cp clause) {
+	var tbExpList []TableExp
+	copy(tbExpList, c.tbExpList)
+	clause := fromClause{tbExpList: tbExpList}
+	cp = &clause
+}
+
 func (fromClause) isClause() {}
 
 // Set clause.
@@ -140,6 +159,15 @@ func (c *setClause) collectColSources(collector colSrcMap) {
 	for _, exp := range c.setExpMap {
 		exp.collectColSources(collector)
 	}
+}
+
+func (c *setClause) copyTo(cp clause) {
+	setExpMap := make(map[string]ColExp, len(c.setExpMap))
+	for k, v := range c.setExpMap {
+		setExpMap[k] = v
+	}
+	clause := setClause{setExpMap: setExpMap}
+	cp = &clause
 }
 
 func (setClause) isClause() {}
@@ -187,6 +215,15 @@ func (c *insertClause) collectColSources(collector colSrcMap) {
 			val.collectColSources(collector)
 		}
 	}
+}
+
+func (c *insertClause) copyTo(cp clause) {
+	var columns []string
+	var valuesList [][]ColExp
+	copy(columns, c.columns)
+	copy(valuesList, c.valuesList)
+	clause := insertClause{table: c.table, columns: columns, valuesList: valuesList}
+	cp = &clause
 }
 
 func (insertClause) isClause() {}

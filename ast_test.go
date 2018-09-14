@@ -181,3 +181,11 @@ func TestNeg(t *testing.T) {
 	a := n.Add(30)
 	assert.Equal(t, "( - 5.78) + 30", AstToSQL(a))
 }
+
+func TestSubQueryExp(t *testing.T) {
+	col := Column(myTb, "Balance")
+	exp := Exists(Select(col.Gt(30)).From(myTb))
+	// TODO: May be we will get rid of the tailing space in the future
+	assert.Equal(t, fmt.Sprintf(`EXISTS (SELECT "%s"."Balance" > 30 FROM "%s"."%s" )`,
+		myTbTable, myTbSchema, myTbTable), AstToSQL(exp))
+}
