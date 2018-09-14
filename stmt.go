@@ -64,15 +64,9 @@ func (s *SelectStmt) toSQL(ctx *buildContext) {
 	clauseToSQL(s.whereClause, ctx)
 }
 
-// TODO: Make this a method of Context instead (i.e. ctx.ToSQL(selectStmt) -> string
-func (s *SelectStmt) ToSQL() string {
-	bCtx := s.ctx.createBuildContext()
-	s.toSQL(bCtx)
-	return bCtx.buf.String()
-}
 
-func newSelect(ctx *Context, exps ... interface{}) *SelectStmt {
-	res := &SelectStmt{ctx: ctx}
+func Select(exps ... interface{}) *SelectStmt {
+	res := &SelectStmt{}
 	res.Select(exps...)
 	return res
 }

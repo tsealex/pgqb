@@ -108,7 +108,7 @@ func Table(schema, tbname string) *TableNode {
 // Alias of a table/view.
 type TableAliasNode struct {
 	BaseTableExpNode
-	table *TableNode
+	table ColSource
 	alias string
 }
 
@@ -118,7 +118,7 @@ func (n *TableAliasNode) collectColSources(collector colSrcMap) {
 }
 
 func (n *TableAliasNode) toSQL(ctx *buildContext) {
-	n.table.toSQL(ctx)
+	n.table.(astNode).toSQL(ctx)
 	// TODO: This may be Postgres-specific.
 	ctx.buf.WriteString(" " + ctx.QuoteObject(n.alias))
 }
@@ -136,7 +136,7 @@ func (n *TableAliasNode) Column(cname string) *ColumnNode {
 	return Column(n, cname)
 }
 
-func TableAlias(table *TableNode, alias string) *TableAliasNode {
+func TableAlias(table ColSource, alias string) *TableAliasNode {
 	node := &TableAliasNode{table: table, alias: alias}
 	node.TableExp = node
 	return node
@@ -824,13 +824,13 @@ func CreateFuncCallFactory(name string) FuncCallFactory {
 
 // Expressions that involve sub-queries (i.e. EXISTS, ALL, SOME).
 // TODO: Add tests.
-type SubQueryExpNode struct {
+type SubQueryColExpNode struct {
 	BaseColExpNode
 	op         string
 	selectStmt *SelectStmt
 }
 
-func (n *SubQueryExpNode) toSQL(ctx *buildContext) {
+func (n *SubQueryColExpNode) toSQL(ctx *buildContext) {
 	ctx.buf.WriteString(n.op + " (")
 	origMode := ctx.mode
 	ctx.mode &= ^ContextModeAutoFrom
@@ -839,7 +839,7 @@ func (n *SubQueryExpNode) toSQL(ctx *buildContext) {
 	ctx.buf.WriteByte(')')
 }
 
-func (n *SubQueryExpNode) collectColSources(collector colSrcMap) {
+func (n *SubQueryColExpNode) collectColSources(collector colSrcMap) {
 	// TODO: Update this list as we add more clauses to SELECT stmt.
 	usedSrcMap := collectColSourcesFromClauses(n.selectStmt.whereClause, n.selectStmt.selectClause)
 	fromSrcMap := collectColSourcesFromClauses(n.selectStmt.fromClause)
@@ -850,8 +850,8 @@ func (n *SubQueryExpNode) collectColSources(collector colSrcMap) {
 	}
 }
 
-func SubQueryExp(op string, stmt *SelectStmt) *SubQueryExpNode {
-	n := &SubQueryExpNode{op: op, selectStmt: stmt}
+func SubQueryExp(op string, stmt *SelectStmt) *SubQueryColExpNode {
+	n := &SubQueryColExpNode{op: op, selectStmt: stmt}
 	n.ColExp = n
 	return n
 }
@@ -863,17 +863,49 @@ const (
 	// TODO: More operators
 )
 
-func Exists(stmt *SelectStmt) *SubQueryExpNode {
+func Exists(stmt *SelectStmt) *SubQueryColExpNode {
 	return SubQueryExp(opExists, stmt)
 }
 
-func All(stmt *SelectStmt) *SubQueryExpNode {
+func All(stmt *SelectStmt) *SubQueryColExpNode {
 	return SubQueryExp(opALL, stmt)
 }
 
-func Some(stmt *SelectStmt) *SubQueryExpNode {
+func Some(stmt *SelectStmt) *SubQueryColExpNode {
 	return SubQueryExp(opSome, stmt)
 }
+
+// TODO: Subquery alias (ColumnSrc, TableExp)
+type SubQueryTableExpNode struct {
+	BaseTableExpNode
+	alias      string
+	selectStmt *SelectStmt
+}
+
+func (n *SubQueryTableExpNode) name() string {
+	return n.alias
+}
+
+func (n *SubQueryTableExpNode) As(alias string) *TableAliasNode {
+	return TableAlias(SubQueryTableExp(n.selectStmt, alias), alias)
+}
+
+func (n *SubQueryTableExpNode) Column(cname string) *ColumnNode {
+	panic("implement me")
+}
+
+func (n *SubQueryTableExpNode) toSQL(ctx *buildContext) {
+	ctx.buf.WriteByte('(')
+	n.selectStmt.toSQL(ctx)
+	ctx.buf.WriteString(") " + ctx.QuoteObject(n.alias))
+}
+
+func SubQueryTableExp(stmt *SelectStmt, alias string) *SubQueryTableExpNode {
+	node := &SubQueryTableExpNode{selectStmt: stmt, alias: alias}
+	node.TableExp = node
+	return node
+}
+
 
 // TODO: Array accessor (i.e. '{2, 7, 3}'[1]).
 

@@ -13,8 +13,10 @@ func (ctx *Context) createBuildContext() *buildContext {
 	return newBuildContext(ctx.mode)
 }
 
-func (ctx *Context) Select(exps ... interface{}) *SelectStmt {
-	return newSelect(ctx, exps...)
+func (ctx *Context) ToSQL(stmt Stmt) string {
+	bCtx := ctx.createBuildContext()
+	stmt.toSQL(bCtx)
+	return bCtx.buf.String()
 }
 
 // Create a context using default mode.
@@ -23,7 +25,7 @@ func NewContext() *Context {
 }
 
 //
-type ContextMode uint64
+type ContextMode int64
 
 const ContextModeNone = ContextMode(0)
 
@@ -32,7 +34,7 @@ const (
 	ContextModeAutoFrom                  = 1 << iota
 )
 
-type buildContextState uint8
+type buildContextState int8
 
 const (
 	buildContextStateNone buildContextState = iota
