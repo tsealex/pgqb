@@ -3,6 +3,7 @@ package pgqb
 import (
 	"strconv"
 	"strings"
+	"regexp"
 )
 
 // Node in the abstract syntax tree.
@@ -219,6 +220,8 @@ type ColExp interface {
 	BitXor(right interface{}) ColExp
 	LeftShift(right interface{}) ColExp
 	RightShift(right interface{}) ColExp
+
+	As(alias string) ColExp
 }
 
 // Base expression.
@@ -349,6 +352,10 @@ func (n *BaseColExpNode) RightShift(right interface{}) ColExp {
 
 func (BaseColExpNode) toSQL(ctx *buildContext) {
 	panic("not implemented")
+}
+
+func (n *BaseColExpNode) As(alias string) ColExp {
+	return ColumnAlias(n.ColExp, alias)
 }
 
 func (BaseColExpNode) isAstNode()                            {}
@@ -498,16 +505,12 @@ func (n *BaseColumnSourceNode) collectColSources(collector colSrcMap) {
 // Column.
 type ColumnNode struct {
 	BaseColumnSourceNode
-	name   string
+	name string
 }
 
 func (n *ColumnNode) toSQL(ctx *buildContext) {
 	// TODO: This opIs Postgres-specific
 	ctx.buf.WriteString(ctx.QuoteObject(n.source.name()) + "." + ctx.QuoteObject(n.name))
-}
-
-func (n *ColumnNode) As(alias string) *ColumnAliasNode {
-	return ColumnAlias(n, alias)
 }
 
 func Column(src ColSource, cname string) *ColumnNode {
@@ -517,29 +520,28 @@ func Column(src ColSource, cname string) *ColumnNode {
 	return node
 }
 
-// Alias of column.
-type ColumnAliasNode struct {
+// Alias of ColExp.
+type ColExpAliasNode struct {
 	BaseColExpNode
-	column *ColumnNode
-	alias  string
+	exp   ColExp
+	alias string
 }
 
-func (n *ColumnAliasNode) toSQL(ctx *buildContext) {
+func (n *ColExpAliasNode) toSQL(ctx *buildContext) {
 	name := ctx.QuoteObject(n.alias)
 	if ctx.state == buildContextStateColumnDeclaration {
-		n.column.toSQL(ctx)
+		n.exp.toSQL(ctx)
 		ctx.buf.WriteByte(' ')
 	}
 	ctx.buf.WriteString(name)
 }
 
-func (n *ColumnAliasNode) collectColSources(collector colSrcMap) {
-	col := n.column
-	col.collectColSources(collector)
+func (n *ColExpAliasNode) collectColSources(collector colSrcMap) {
+	n.exp.collectColSources(collector)
 }
 
-func ColumnAlias(src *ColumnNode, alias string) *ColumnAliasNode {
-	node := &ColumnAliasNode{column: src, alias: alias}
+func ColumnAlias(src ColExp, alias string) *ColExpAliasNode {
+	node := &ColExpAliasNode{exp: src, alias: alias}
 	node.ColExp = node
 	return node
 }
@@ -615,6 +617,7 @@ type UnaryExpNode struct {
 	exp      ColExp
 	op       string
 	position operatorPosition
+	spaceSep bool
 }
 
 func (UnaryExpNode) isCompoundExp() {}
@@ -624,18 +627,38 @@ func (n *UnaryExpNode) collectColSources(collector colSrcMap) {
 }
 
 func (n *UnaryExpNode) toSQL(ctx *buildContext) {
-	if !n.position {
-		ctx.buf.WriteString(" " + n.op + " ")
+	if n.position == posLeft {
+		ctx.buf.WriteString(n.op)
+		if n.spaceSep {
+			ctx.buf.WriteByte(' ')
+		}
 		compoundExpToSQL(n.exp, ctx)
 	} else {
 		compoundExpToSQL(n.exp, ctx)
-		ctx.buf.WriteString(" " + n.op + " ")
+		if n.spaceSep {
+			ctx.buf.WriteByte(' ')
+		}
+		ctx.buf.WriteString(n.op)
 	}
+}
+
+var isAlphanumeric = regexp.MustCompile(`^[a-zA-Z0-9]+$`).MatchString
+
+func (n *UnaryExpNode) isOpAlphanumeric() bool {
+	op := n.op
+	var c string
+	if n.position == posLeft {
+		c = string(op[len(op)-1])
+	} else {
+		c = string(op[0])
+	}
+	return isAlphanumeric(c)
 }
 
 func UnaryExp(exp ColExp, op string, pos operatorPosition) *UnaryExpNode {
 	node := &UnaryExpNode{exp: exp, op: op, position: pos}
 	node.ColExp = node
+	node.spaceSep = node.isOpAlphanumeric()
 	return node
 }
 
@@ -663,6 +686,34 @@ const (
 
 func Not(exp interface{}) *UnaryExpNode {
 	return UnaryExp(Group(getExp(exp)), opNot, posLeft)
+}
+
+// Order expression
+type OrderExpNode struct {
+	UnaryExpNode
+}
+
+func (OrderExpNode) As(alias string) ColExp {
+	panic("invalid operation")
+}
+
+const (
+	orderAsc  string = "ASC"
+	orderDesc string = "DESC"
+)
+
+func OrderExp(exp interface{}, order string) *OrderExpNode {
+	node := &OrderExpNode{UnaryExpNode: *UnaryExp(getExp(exp), order, posRight)}
+	node.ColExp = node
+	return node
+}
+
+func Asc(exp interface{}) *OrderExpNode {
+	return OrderExp(exp, orderAsc)
+}
+
+func Desc(exp interface{}) *OrderExpNode {
+	return OrderExp(exp, orderDesc)
 }
 
 // Binary expressions
@@ -931,3 +982,5 @@ func SubQueryTableExp(stmt *SelectStmt, alias string) *SubQueryTableExpNode {
 // TODO: Array accessor (i.e. '{2, 7, 3}'[1]).
 
 // TODO: Nested arrays.
+
+// TODO: Implement As for all column expressions.

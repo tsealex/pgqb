@@ -36,6 +36,15 @@ func (c *baseColExpListClause) toSQL(ctx *buildContext) {
 	}
 }
 
+func (c *baseColExpListClause) toSQLWithKeyword(keyword string, ctx *buildContext) {
+	if len(c.colExpList) == 0 {
+		return
+	}
+	ctx.buf.WriteString(keyword + " ")
+	c.toSQL(ctx)
+	ctx.buf.WriteByte(' ')
+}
+
 func (c *baseColExpListClause) collectColSources(collector colSrcMap) {
 	for _, colExp := range c.colExpList {
 		colExp.collectColSources(collector)
@@ -59,12 +68,7 @@ type selectClause struct {
 }
 
 func (c *selectClause) toSQL(ctx *buildContext) {
-	if len(c.colExpList) == 0 {
-		return
-	}
-	ctx.buf.WriteString("SELECT ")
-	c.baseColExpListClause.toSQL(ctx)
-	ctx.buf.WriteByte(' ')
+	c.baseColExpListClause.toSQLWithKeyword("SELECT", ctx)
 }
 
 func (c *selectClause) copyTo(cp clause) {
@@ -79,12 +83,7 @@ type groupByClause struct {
 }
 
 func (c *groupByClause) toSQL(ctx *buildContext) {
-	if len(c.colExpList) == 0 {
-		return
-	}
-	ctx.buf.WriteString("GROUP BY ")
-	c.baseColExpListClause.toSQL(ctx)
-	ctx.buf.WriteByte(' ')
+	c.baseColExpListClause.toSQLWithKeyword("GROUP BY", ctx)
 }
 
 func (c *groupByClause) copyTo(cp clause) {
@@ -93,25 +92,56 @@ func (c *groupByClause) copyTo(cp clause) {
 	cp = &clause
 }
 
-// Where clause.
-type whereClause struct {
+// Order by clause.
+type orderByClause struct {
+	baseColExpListClause
+}
+
+func (c *orderByClause) toSQL(ctx *buildContext) {
+	c.baseColExpListClause.toSQLWithKeyword("ORDER BY", ctx)
+}
+
+func (c *orderByClause) copyTo(cp clause) {
+	clause := orderByClause{}
+	c.baseColExpListClause.copyTo(&clause.baseColExpListClause)
+	cp = &clause
+}
+
+func (c *orderByClause) addColExp(exps ... interface{}) {
+	order := getExpList(exps)
+	for i, colExp := range order {
+		if _, ok := colExp.(*OrderExpNode); !ok {
+			order[i] = Asc(colExp)
+		}
+	}
+	c.colExpList = append(c.colExpList, order...)
+}
+
+// Base class for all clauses that involve a predicate.
+type basePredicateClause struct {
+	baseClause
 	predicate ColExp
 }
 
-func (c *whereClause) toSQL(ctx *buildContext) {
+func (c *basePredicateClause) toSQL(ctx *buildContext) {
+	// Trust sub-classes only call this method when predicate is not nil.
+	c.predicate.toSQL(ctx)
+}
+
+func (c *basePredicateClause) toSQLWithKeyword(keyword string, ctx *buildContext) {
 	if isNull(c.predicate) {
 		return
 	}
-	ctx.buf.WriteString("WHERE ")
-	c.predicate.toSQL(ctx)
+	ctx.buf.WriteString(keyword + " ")
+	c.toSQL(ctx)
 	ctx.buf.WriteByte(' ')
 }
 
-func (c *whereClause) collectColSources(collector colSrcMap) {
+func (c *basePredicateClause) collectColSources(collector colSrcMap) {
 	c.predicate.collectColSources(collector)
 }
 
-func (c *whereClause) addPredicate(predicates ... interface{}) {
+func (c *basePredicateClause) addPredicate(predicates ... interface{}) {
 	var tmp = make([]interface{}, 0, len(predicates)+1)
 	if c.predicate != nil {
 		tmp = append(tmp, c.predicate)
@@ -122,11 +152,39 @@ func (c *whereClause) addPredicate(predicates ... interface{}) {
 	}
 }
 
-func (c whereClause) copyTo(cp clause) {
+func (c basePredicateClause) copyTo(cp clause) {
 	cp = &c
 }
 
-func (whereClause) isClause() {}
+// Where clause.
+type whereClause struct {
+	basePredicateClause
+}
+
+func (c *whereClause) toSQL(ctx *buildContext) {
+	c.basePredicateClause.toSQLWithKeyword("WHERE", ctx)
+}
+
+func (c *whereClause) copyTo(cp clause) {
+	res := &whereClause{}
+	c.basePredicateClause.copyTo(&res.basePredicateClause)
+	cp = res
+}
+
+// Having clause.
+type havingClause struct {
+	basePredicateClause
+}
+
+func (c *havingClause) toSQL(ctx *buildContext) {
+	c.basePredicateClause.toSQLWithKeyword("HAVING", ctx)
+}
+
+func (c *havingClause) copyTo(cp clause) {
+	res := &whereClause{}
+	c.basePredicateClause.copyTo(&res.basePredicateClause)
+	cp = res
+}
 
 // From clause.
 type fromClause struct {

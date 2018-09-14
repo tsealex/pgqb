@@ -176,10 +176,10 @@ func TestFuncCallFactory(t *testing.T) {
 
 func TestNeg(t *testing.T) {
 	n := Neg(5.78)
-	assert.Equal(t, " - 5.78", AstToSQL(n))
+	assert.Equal(t, "-5.78", AstToSQL(n))
 
 	a := n.Add(30)
-	assert.Equal(t, "( - 5.78) + 30", AstToSQL(a))
+	assert.Equal(t, "(-5.78) + 30", AstToSQL(a))
 }
 
 func TestSubQueryExp(t *testing.T) {

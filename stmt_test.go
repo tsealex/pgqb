@@ -4,6 +4,7 @@ import (
 	"testing"
 	"github.com/stretchr/testify/assert"
 	"strings"
+	"fmt"
 )
 
 func TestSelect(t *testing.T) {
@@ -32,11 +33,16 @@ func TestSelect(t *testing.T) {
 
 	// Test GroupBy
 	max := CreateFuncCallFactory("max")
-	sql = strings.Trim(ctx.ToSQL(Select(max(c3)).Where(c2.Eq(e1)).GroupBy(e2)), " ")
-	assert.Equal(t, `SELECT max("school"."enrollment") FROM "public"."school", "public"."city" WHERE "school"."city" = "city"."name" GROUP BY "city"."state"`, sql)
+	sql = strings.Trim(ctx.ToSQL(Select(max(c3), e2).Where(c2.Eq(e1)).GroupBy(e2)), " ")
+	expSQLTmpl := `SELECT max("school"."enrollment"), "city"."state" FROM "public"."%s", "public"."%s" WHERE "school"."city" = "city"."name" GROUP BY "city"."state"`
+	// The order of table inclusions may be different for each run
+	assert.True(t, sql == fmt.Sprintf(expSQLTmpl, "school", "city") ||
+		sql == fmt.Sprintf(expSQLTmpl, "city", "school"))
 
-	sql = strings.Trim(ctx.ToSQL(Select(max(c3)).From(t1.InnerJoin(t2, c2.Eq(e1))).GroupBy(e2)),
-		" ")
-	assert.Equal(t, `SELECT max("school"."enrollment") FROM "public"."school" INNER JOIN "public"."city" ON ("school"."city" = "city"."name") GROUP BY "city"."state"`, sql)
+	sql = strings.Trim(ctx.ToSQL(Select(max(c3).As("maxEnrollment"), c1, e2).
+		From(t1.InnerJoin(t2, c2.Eq(e1))).GroupBy(e2).Having(max(c3).Gt(1000))), " ")
+	assert.Equal(t, `SELECT max("school"."enrollment") "maxEnrollment", "school"."name", "city"."state" FROM "public"."school" INNER JOIN "public"."city" ON ("school"."city" = "city"."name") GROUP BY "city"."state" HAVING max("school"."enrollment") > 1000`, sql)
 
+	sql = strings.Trim(ctx.ToSQL(Select(c1).OrderBy(Desc(c3), c1).Limit(30)), " ")
+	assert.Equal(t, `SELECT "school"."name" FROM "public"."school" ORDER BY "school"."enrollment" DESC, "school"."name" ASC LIMIT 30`, sql)
 }
