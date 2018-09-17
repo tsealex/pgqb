@@ -261,6 +261,21 @@ func InsertInto(table *TableNode, cols ... *ColumnNode) *InsertStmt {
 	return stmt
 }
 
+// Update statement.
+type UpdateStmt struct {
+	table           *TableNode
+	setClause       *setClause
+	fromClause      *fromClause
+	whereClause     *whereClause
+	returningClause *returningClause
+}
+
+func (s *UpdateStmt) isStmt() {}
+
+func (s *UpdateStmt) toSQL(ctx *buildContext) {
+	panic("implement me")
+}
+
 // Helper for deep-copying a clause.
 func deepcopyClause(src clause) interface{} {
 	if !isNull(src) {
