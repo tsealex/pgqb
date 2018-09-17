@@ -130,7 +130,6 @@ func (s *SelectStmt) toSQL(ctx *buildContext) {
 // Create a snapshot (deep-copy) of the Stmt object.
 func (s *SelectStmt) Make() *SelectStmt {
 	res := &SelectStmt{limit: s.limit, offset: s.offset}
-
 	res.selectClause = deepcopyClause(s.selectClause).(*selectClause)
 	res.whereClause = deepcopyClause(s.whereClause).(*whereClause)
 	res.fromClause = deepcopyClause(s.fromClause).(*fromClause)

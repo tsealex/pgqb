@@ -77,6 +77,20 @@ func (c *selectClause) deepcopy() clause {
 	return &selectClause{baseColExpListClause: *baseColExpListClause}
 }
 
+// Returning clause.
+type returningClause struct {
+	baseColExpListClause
+}
+
+func (c *returningClause) toSQL(ctx *buildContext) {
+	c.baseColExpListClause.toSQLWithKeyword("RETURNING", ctx)
+}
+
+func (c *returningClause) deepcopy() clause {
+	var baseColExpListClause = c.baseColExpListClause.deepcopy().(*baseColExpListClause)
+	return &returningClause{baseColExpListClause: *baseColExpListClause}
+}
+
 // Group by clause.
 type groupByClause struct {
 	baseColExpListClause
@@ -322,8 +336,6 @@ func (c *insertClause) deepcopy() clause {
 }
 
 func (insertClause) isClause() {}
-
-// TODO: GROUP BY, HAVING, RETURNING clauses
 
 func collectColSourcesFromClauses(clauses ... clause) colSrcMap {
 	res := colSrcMap{}

@@ -366,6 +366,37 @@ func (BaseColExpNode) isAstNode()                            {}
 func (BaseColExpNode) isColExp()                             {}
 func (BaseColExpNode) collectColSources(collector colSrcMap) {}
 
+// SQL. TODO: Test this.
+type SQLNode struct {
+	BaseColExpNode
+	sql  string
+	args []ColExp
+}
+
+func (n *SQLNode) toSQL(ctx *buildContext) {
+	quoted := false
+	slash := false
+	argIdx := 0
+	for _, c := range n.sql {
+		if c == '"' && !slash {
+			quoted = !quoted
+		}
+		if c == '?' && !quoted {
+			n.args[argIdx].toSQL(ctx)
+		} else {
+			ctx.buf.WriteByte(byte(c))
+		}
+		slash = c == '\\'
+	}
+}
+
+// Make sure you pass as many arguments as the placeholders
+func SQL(sql string, args ... ColExp) *SQLNode {
+	node := &SQLNode{sql: sql, args: args}
+	node.ColExp = node
+	return node
+}
+
 // Placeholder for an argument.
 type ArgumentNode struct {
 	BaseColExpNode
@@ -1019,7 +1050,7 @@ func (n *SubQueryTableExpNode) As(alias string) *TableAliasNode {
 }
 
 func (n *SubQueryTableExpNode) Column(cname string) *ColumnNode {
-	panic("implement me")
+	return Column(n, cname)
 }
 
 func (n *SubQueryTableExpNode) toSQL(ctx *buildContext) {
