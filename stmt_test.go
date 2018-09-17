@@ -90,3 +90,17 @@ func TestInsertStmt(t *testing.T) {
 
 	// TODO: More tests
 }
+
+func TestUpdateStmt(t *testing.T) {
+	t1 := Table("public", "school")
+	c1 := Column(t1, "name")
+	c2 := Column(t1, "city")
+	c3 := Column(t1, "enrollment")
+
+	ctx := NewContext()
+	stmt := Update(t1, Set{
+		c2: "Madison",
+	}).Where(c3.Gt(50000), c1.Ne("University of Wisconsin")).Returning(Star(t1))
+	sql := stmtToSQL(ctx, stmt)
+	assert.Equal(t, `UPDATE "public"."school" SET "city" = 'Madison' WHERE "school"."enrollment" > 50000 AND "school"."name" != 'University of Wisconsin' RETURNING "school".*`, sql)
+}

@@ -202,6 +202,7 @@ func (s *InsertStmt) ValuesInBulk(tuples ... []interface{}) *InsertStmt {
 }
 
 func (s *InsertStmt) ClearValues() *InsertStmt {
+	// TODO: Do we actually need this method?
 	s.valuesClause = nil
 	return s
 }
@@ -273,8 +274,66 @@ type UpdateStmt struct {
 func (s *UpdateStmt) isStmt() {}
 
 func (s *UpdateStmt) toSQL(ctx *buildContext) {
-	panic("implement me")
+	if ctx.AutoFrom() {
+		usedColSrc := collectColSourcesFromClauses(s.setClause, s.whereClause)
+		if _, in := usedColSrc[s.table.name()]; in {
+			delete(usedColSrc, s.table.name())
+		}
+		if len(usedColSrc) > 0 {
+			if s.fromClause == nil {
+				s.fromClause = &fromClause{}
+			}
+			s.fromClause.fillMissingColSrc(usedColSrc)
+		}
+	}
+	ctx.buf.WriteString("UPDATE ")
+	s.table.toSQL(ctx)
+	ctx.buf.WriteByte(' ')
+	clauseToSQL(s.setClause, ctx)
+	clauseToSQL(s.fromClause, ctx)
+	clauseToSQL(s.whereClause, ctx)
+	clauseToSQL(s.returningClause, ctx)
 }
+
+func (s *UpdateStmt) From(exps ... TableExp) *UpdateStmt {
+	if len(exps) == 0 {
+		return s
+	}
+	if s.fromClause == nil {
+		s.fromClause = &fromClause{}
+	}
+	s.fromClause.addTableExp(exps...)
+	return s
+}
+
+func (s *UpdateStmt) Where(exps ... interface{}) *UpdateStmt {
+	if len(exps) == 0 {
+		return s
+	}
+	if s.whereClause == nil {
+		s.whereClause = &whereClause{}
+	}
+	s.whereClause.addPredicate(exps...)
+	return s
+}
+
+func (s *UpdateStmt) Returning(exps ... interface{}) *UpdateStmt {
+	if len(exps) == 0 {
+		return s
+	}
+	if s.returningClause == nil {
+		s.returningClause = &returningClause{}
+	}
+	s.returningClause.addColExp(exps...)
+	return s
+}
+
+func Update(table *TableNode, set Set) *UpdateStmt {
+	stmt := &UpdateStmt{table: table, setClause: &setClause{setExpMap: set.mapNamesToColExps()}}
+	return stmt
+}
+
+// TODO: Allow developers to change update values
 
 // Helper for deep-copying a clause.
 func deepcopyClause(src clause) interface{} {
@@ -299,3 +358,5 @@ type ConflictTarget []*ColumnNode
 func Conflict(cols ... *ColumnNode) ConflictTarget {
 	return ConflictTarget(cols)
 }
+
+// TODO: Refactor the code a bit.
