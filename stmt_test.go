@@ -57,5 +57,36 @@ func TestSelectStmt_Make(t *testing.T) {
 	sel2.Select(4, 5, 6)
 	assert.Equal(t, `SELECT 1, 2, 3`, stmtToSQL(ctx, sel1))
 	assert.Equal(t, `SELECT 1, 2, 3, 4, 5, 6`, stmtToSQL(ctx, sel2))
+}
 
+func TestInsertStmt(t *testing.T) {
+	t1 := Table("public", "school")
+	c1 := Column(t1, "name")
+	c2 := Column(t1, "city")
+	//c3 := Column(t1, "enrollment")
+
+	ctx := NewContext()
+	stmt := InsertInto(t1, c1, c2).Values("Abc", Arg("city"))
+	sql := stmtToSQL(ctx, stmt)
+	exp := `INSERT INTO "public"."school" ("name", "city") VALUES ('Abc', $1)`
+	assert.Equal(t, exp, sql)
+
+	stmt.On(Conflict(c1), DoNothing())
+	sql = stmtToSQL(ctx, stmt)
+	exp2 := exp + ` ON CONFLICT ("name") DO NOTHING`
+	assert.Equal(t, exp2, sql)
+
+	stmt.On(Conflict(c2, c1), DoUpdate(Set{
+		c2: "Seattle",
+	}))
+	sql = stmtToSQL(ctx, stmt)
+	exp2 = exp + ` ON CONFLICT ("city", "name") DO UPDATE SET "city" = 'Seattle'`
+	assert.Equal(t, exp2, sql)
+
+	stmt.Returning(c2.Eq(c1))
+	exp2 = exp2 + ` RETURNING "school"."city" = "school"."name"`
+	sql = stmtToSQL(ctx, stmt)
+	assert.Equal(t, exp2, sql)
+
+	// TODO: More tests
 }

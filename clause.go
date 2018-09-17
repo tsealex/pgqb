@@ -129,6 +129,20 @@ func (c *orderByClause) addColExp(exps ... interface{}) {
 	c.colExpList = append(c.colExpList, order...)
 }
 
+// Default values clause.
+type defaultValuesClause struct {
+	baseColExpListClause
+}
+
+func (c *defaultValuesClause) toSQL(ctx *buildContext) {
+	c.baseColExpListClause.toSQLWithKeyword("DEFAULT VALUES", ctx)
+}
+
+func (c *defaultValuesClause) deepcopy() clause {
+	var baseColExpListClause = c.baseColExpListClause.deepcopy().(*baseColExpListClause)
+	return &defaultValuesClause{baseColExpListClause: *baseColExpListClause}
+}
+
 // Base class for all clauses that involve a predicate.
 type basePredicateClause struct {
 	baseClause
@@ -282,27 +296,81 @@ func (c *setClause) deepcopy() clause {
 
 func (setClause) isClause() {}
 
-// Insert clause.
-type insertClause struct {
-	table      *TableNode
-	columns    []string // List of column names.
-	valuesList [][]ColExp
+// Conflict clause.
+type conflictClause struct {
+	*setClause
+	cols []*ColumnNode
 }
 
-func (c *insertClause) toSQL(ctx *buildContext) {
-	if len(c.columns) == 0 || c.table == nil || len(c.valuesList) == 0 {
-		return
-	}
-	ctx.buf.WriteString("INSERT INTO ")
-	c.table.toSQL(ctx)
-	ctx.buf.WriteString(" (")
-	for i, col := range c.columns {
+func (c *conflictClause) toSQL(ctx *buildContext) {
+	origState := ctx.setState(buildContextStateNoColumnSource)
+	ctx.buf.WriteString("ON CONFLICT (")
+	for i, col := range c.cols {
 		if i > 0 {
 			ctx.buf.WriteString(", ")
 		}
-		ctx.buf.WriteString(ctx.QuoteObject(col))
+		col.toSQL(ctx)
 	}
-	ctx.buf.WriteString(") VALUES ")
+	ctx.buf.WriteString(") ")
+	ctx.setState(origState)
+	if isNull(c.setClause) {
+		ctx.buf.WriteString("DO NOTHING")
+	} else {
+		ctx.buf.WriteString("DO UPDATE ")
+		c.setClause.toSQL(ctx)
+	}
+}
+
+func (c *conflictClause) deepcopy() clause {
+	return &conflictClause{setClause: c.setClause.deepcopy().(*setClause)}
+}
+
+// Insert clause.
+type insertClause struct {
+	table   *TableNode
+	columns []*ColumnNode
+}
+
+func (c *insertClause) toSQL(ctx *buildContext) {
+	origState := ctx.setState(buildContextStateNoColumnSource)
+	ctx.buf.WriteString("INSERT INTO ")
+	c.table.toSQL(ctx)
+	if len(c.columns) > 0 {
+		ctx.buf.WriteString(" (")
+		for i, col := range c.columns {
+			if i > 0 {
+				ctx.buf.WriteString(", ")
+			}
+			col.toSQL(ctx)
+		}
+		ctx.buf.WriteByte(')')
+	}
+	ctx.buf.WriteByte(' ')
+	ctx.setState(origState)
+}
+
+func (c *insertClause) collectColSources(collector colSrcMap) {}
+
+func (c *insertClause) deepcopy() clause {
+	var columns = make([]*ColumnNode, len(c.columns))
+	copy(columns, c.columns)
+	return &insertClause{table: c.table, columns: columns}
+}
+
+func (insertClause) isClause() {}
+
+// Values clause.
+type valueSourceClause interface {
+	clause
+	isValueSource()
+}
+
+type valuesClause struct {
+	valuesList [][]ColExp
+}
+
+func (c *valuesClause) toSQL(ctx *buildContext) {
+	ctx.buf.WriteString("VALUES ")
 	for i, valList := range c.valuesList {
 		if i > 0 {
 			ctx.buf.WriteString(", ")
@@ -319,7 +387,7 @@ func (c *insertClause) toSQL(ctx *buildContext) {
 	ctx.buf.WriteByte(' ')
 }
 
-func (c *insertClause) collectColSources(collector colSrcMap) {
+func (c *valuesClause) collectColSources(collector colSrcMap) {
 	for _, valList := range c.valuesList {
 		for _, val := range valList {
 			val.collectColSources(collector)
@@ -327,16 +395,36 @@ func (c *insertClause) collectColSources(collector colSrcMap) {
 	}
 }
 
-func (c *insertClause) deepcopy() clause {
-	var columns = make([]string, len(c.columns))
+func (c *valuesClause) deepcopy() clause {
 	var valuesList = make([][]ColExp, len(c.valuesList))
-	copy(columns, c.columns)
 	copy(valuesList, c.valuesList)
-	return &insertClause{table: c.table, columns: columns, valuesList: valuesList}
+	return &valuesClause{valuesList: valuesList}
 }
 
-func (insertClause) isClause() {}
+func (valuesClause) isClause() {}
 
+func (valuesClause) isValueSource() {}
+
+// Subquery clause.
+type subqueryClause struct {
+	selectStmt *SelectStmt
+}
+
+func (c *subqueryClause) toSQL(ctx *buildContext) {
+	c.selectStmt.toSQL(ctx)
+}
+
+func (c *subqueryClause) collectColSources(collector colSrcMap) {}
+
+func (c *subqueryClause) isClause() {}
+
+func (c *subqueryClause) deepcopy() clause {
+	return &subqueryClause{selectStmt: c.selectStmt.Make()}
+}
+
+func (c *subqueryClause) isValueSource() {}
+
+// Helper functions.
 func collectColSourcesFromClauses(clauses ... clause) colSrcMap {
 	res := colSrcMap{}
 	for _, clause := range clauses {

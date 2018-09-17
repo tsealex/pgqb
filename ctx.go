@@ -40,6 +40,8 @@ const (
 	buildContextStateNone buildContextState = iota
 	// Column declaration (i.e. during rendering the SELECT clause)
 	buildContextStateColumnDeclaration = iota
+	// Not include the name of the table / column source (i.e. during ON CONFLICT).
+	buildContextStateNoColumnSource = iota
 )
 
 type buildContext struct {
@@ -80,6 +82,13 @@ func (ctx *buildContext) nextArgNum() int {
 
 func (ctx *buildContext) QuoteObject(name string) string {
 	return `"` + name + `"`
+}
+
+// Return the old state.
+func (ctx *buildContext) setState(newState buildContextState) buildContextState {
+	origState := ctx.state
+	ctx.state = newState
+	return origState
 }
 
 func newBuildContext(mode ContextMode) *buildContext {

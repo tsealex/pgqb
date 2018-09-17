@@ -397,6 +397,8 @@ func SQL(sql string, args ... ColExp) *SQLNode {
 	return node
 }
 
+var Default = SQL("DEFAULT")
+
 // Placeholder for an argument.
 type ArgumentNode struct {
 	BaseColExpNode
@@ -570,8 +572,10 @@ type ColumnNode struct {
 }
 
 func (n *ColumnNode) toSQL(ctx *buildContext) {
-	// TODO: This opIs Postgres-specific
-	ctx.buf.WriteString(ctx.QuoteObject(n.source.name()) + "." + ctx.QuoteObject(n.name))
+	if ctx.state != buildContextStateNoColumnSource {
+		ctx.buf.WriteString(ctx.QuoteObject(n.source.name()) + ".")
+	}
+	ctx.buf.WriteString(ctx.QuoteObject(n.name))
 }
 
 func Column(src ColSource, cname string) *ColumnNode {
@@ -613,7 +617,11 @@ type StarNode struct {
 }
 
 func (n *StarNode) toSQL(ctx *buildContext) {
-	ctx.buf.WriteString(ctx.QuoteObject(n.source.name()) + ".*")
+	if ctx.state != buildContextStateNoColumnSource {
+		ctx.buf.WriteString(ctx.QuoteObject(n.source.name()) + ".*")
+	} else {
+		ctx.buf.WriteByte('*')
+	}
 }
 
 func Star(src ColSource) *StarNode {

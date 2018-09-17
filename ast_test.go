@@ -189,3 +189,7 @@ func TestSubQueryExp(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf(`EXISTS (SELECT "%s"."Balance" > 30 FROM "%s"."%s" )`,
 		myTbTable, myTbSchema, myTbTable), AstToSQL(exp))
 }
+
+func TestSQL(t *testing.T) {
+	assert.Equal(t, `DEFAULT`, AstToSQL(Default))
+}
