@@ -335,6 +335,74 @@ func Update(table *TableNode, set Set) *UpdateStmt {
 
 // TODO: Allow developers to change update values
 
+// DeleteFrom statement.
+type DeleteStmt struct {
+	table           *TableNode
+	usingClause     *usingClause
+	whereClause     *whereClause
+	returningClause *returningClause
+}
+
+func (s *DeleteStmt) isStmt() {}
+
+func (s *DeleteStmt) toSQL(ctx *buildContext) {
+	if ctx.AutoFrom() {
+		usedColSrc := collectColSourcesFromClauses(s.returningClause, s.whereClause)
+		if _, in := usedColSrc[s.table.name()]; in {
+			delete(usedColSrc, s.table.name())
+		}
+		if len(usedColSrc) > 0 {
+			if s.usingClause == nil {
+				s.usingClause = &usingClause{}
+			}
+			s.usingClause.fillMissingColSrc(usedColSrc)
+		}
+	}
+	ctx.buf.WriteString("DELETE FROM ")
+	s.table.toSQL(ctx)
+	ctx.buf.WriteByte(' ')
+	clauseToSQL(s.usingClause, ctx)
+	clauseToSQL(s.whereClause, ctx)
+	clauseToSQL(s.returningClause, ctx)
+}
+
+func (s *DeleteStmt) Using(exps ... TableExp) *DeleteStmt {
+	if len(exps) == 0 {
+		return s
+	}
+	if s.usingClause == nil {
+		s.usingClause = &usingClause{}
+	}
+	s.usingClause.addTableExp(exps...)
+	return s
+}
+
+func (s *DeleteStmt) Where(exps ... interface{}) *DeleteStmt {
+	if len(exps) == 0 {
+		return s
+	}
+	if s.whereClause == nil {
+		s.whereClause = &whereClause{}
+	}
+	s.whereClause.addPredicate(exps...)
+	return s
+}
+
+func (s *DeleteStmt) Returning(exps ... interface{}) *DeleteStmt {
+	if len(exps) == 0 {
+		return s
+	}
+	if s.returningClause == nil {
+		s.returningClause = &returningClause{}
+	}
+	s.returningClause.addColExp(exps...)
+	return s
+}
+
+func DeleteFrom(table *TableNode) *DeleteStmt {
+	return &DeleteStmt{table: table}
+}
+
 // Helper for deep-copying a clause.
 func deepcopyClause(src clause) interface{} {
 	if !isNull(src) {

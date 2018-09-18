@@ -104,3 +104,27 @@ func TestUpdateStmt(t *testing.T) {
 	sql := stmtToSQL(ctx, stmt)
 	assert.Equal(t, `UPDATE "public"."school" SET "city" = 'Madison' WHERE "school"."enrollment" > 50000 AND "school"."name" != 'University of Wisconsin' RETURNING "school".*`, sql)
 }
+
+func TestDeleteStmt(t *testing.T) {
+	t1 := Table("public", "school")
+	c1 := Column(t1, "name")
+	c2 := Column(t1, "city")
+	c3 := Column(t1, "enrollment")
+
+	t2 := t1.As("school2")
+	e2 := Column(t1, "city")
+	e3 := Column(t2, "enrollment")
+
+	ctx := NewContext()
+	stmt := DeleteFrom(t1).Using(t2).Where(e3.Gt(40000), e2.Eq(c2), c3.Lte(40000))
+	sql := stmtToSQL(ctx, stmt)
+	assert.Equal(t, `DELETE FROM "public"."school" USING "public"."school" "school2" WHERE "school2"."enrollment" > 40000 AND "school"."city" = "school"."city" AND "school"."enrollment" <= 40000`, sql)
+
+	t3 := Table("public", "city")
+	p1 := Column(t3, "name")
+	p2 := Column(t3, "state")
+	stmt = DeleteFrom(t1).Where(p2.Eq(Arg("state")), p1.Eq(c2)).Returning(c1, c3.Gt(40000))
+	sql = stmtToSQL(ctx, stmt)
+	assert.Equal(t, `DELETE FROM "public"."school" USING "public"."city" WHERE "city"."state" = $1 AND "city"."name" = "school"."city" RETURNING "school"."name", "school"."enrollment" > 40000`, sql)
+
+}

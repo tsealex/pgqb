@@ -210,36 +210,41 @@ func (c *havingClause) deepcopy() clause {
 	return &havingClause{basePredicateClause: *basePredicateClause}
 }
 
-// From clause.
-type fromClause struct {
+// Base clause that involves a list of table expressions.
+type baseTbExpListClause struct {
+	baseClause
 	tbExpList []TableExp
 }
 
-func (c *fromClause) toSQL(ctx *buildContext) {
-	if len(c.tbExpList) == 0 {
-		return
-	}
-	ctx.buf.WriteString("FROM ")
+func (c *baseTbExpListClause) toSQL(ctx *buildContext) {
 	for i, tbExp := range c.tbExpList {
 		if i > 0 {
 			ctx.buf.WriteString(", ")
 		}
 		tbExp.toSQL(ctx)
 	}
+}
+
+func (c *baseTbExpListClause) toSQLWithKeyword(keyword string, ctx *buildContext) {
+	if len(c.tbExpList) == 0 {
+		return
+	}
+	ctx.buf.WriteString(keyword + " ")
+	c.toSQL(ctx)
 	ctx.buf.WriteByte(' ')
 }
 
-func (c *fromClause) collectColSources(collector colSrcMap) {
+func (c *baseTbExpListClause) collectColSources(collector colSrcMap) {
 	for _, tbExp := range c.tbExpList {
 		tbExp.collectColSources(collector)
 	}
 }
 
-func (c *fromClause) addTableExp(exps ... TableExp) {
+func (c *baseTbExpListClause) addTableExp(exps ... TableExp) {
 	c.tbExpList = append(c.tbExpList, exps...)
 }
 
-func (c *fromClause) fillMissingColSrc(colSrcMap colSrcMap) {
+func (c *baseTbExpListClause) fillMissingColSrc(colSrcMap colSrcMap) {
 	fromColSrcMap := collectColSourcesFromClauses(c)
 	difference := colSrcMap.Subtract(fromColSrcMap)
 	for _, colSrc := range difference {
@@ -249,13 +254,39 @@ func (c *fromClause) fillMissingColSrc(colSrcMap colSrcMap) {
 	}
 }
 
-func (c *fromClause) deepcopy() clause {
+func (c *baseTbExpListClause) deepcopy() clause {
 	var tbExpList = make([]TableExp, len(c.tbExpList))
 	copy(tbExpList, c.tbExpList)
-	return &fromClause{tbExpList: tbExpList}
+	return &baseTbExpListClause{tbExpList: tbExpList}
 }
 
-func (fromClause) isClause() {}
+// From clause.
+type fromClause struct {
+	baseTbExpListClause
+}
+
+func (c *fromClause) toSQL(ctx *buildContext) {
+	c.baseTbExpListClause.toSQLWithKeyword("FROM", ctx)
+}
+
+func (c *fromClause) deepcopy() clause {
+	var baseTbExpListClause = *c.baseTbExpListClause.deepcopy().(*baseTbExpListClause)
+	return &fromClause{baseTbExpListClause: baseTbExpListClause}
+}
+
+// From clause.
+type usingClause struct {
+	baseTbExpListClause
+}
+
+func (c *usingClause) toSQL(ctx *buildContext) {
+	c.baseTbExpListClause.toSQLWithKeyword("USING", ctx)
+}
+
+func (c *usingClause) deepcopy() clause {
+	var baseTbExpListClause = *c.baseTbExpListClause.deepcopy().(*baseTbExpListClause)
+	return &usingClause{baseTbExpListClause: baseTbExpListClause}
+}
 
 // Set clause.
 type setClause struct {
