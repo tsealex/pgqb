@@ -198,6 +198,8 @@ type ColExp interface {
 	Mod(right interface{}) ColExp
 	Exp(right interface{}) ColExp
 	Is(right interface{}) ColExp
+	In(right interface{}) ColExp
+	NotIn(right interface{}) ColExp
 	IsNot(right interface{}) ColExp
 	Gt(right interface{}) ColExp
 	Gte(right interface{}) ColExp
@@ -331,6 +333,10 @@ func (n *BaseColExpNode) Intersect(right interface{}) ColExp {
 }
 
 func (n *BaseColExpNode) In(right interface{}) ColExp {
+	return BinaryExp(n.ColExp, opIn, getExp(right))
+}
+
+func (n *BaseColExpNode) NotIn(right interface{}) ColExp {
 	return BinaryExp(n.ColExp, opIn, getExp(right))
 }
 
@@ -509,14 +515,18 @@ type ArrayNode struct {
 }
 
 func (n *ArrayNode) toSQL(ctx *buildContext) {
-	ctx.buf.WriteString("'{")
-	for i, value := range n.values {
-		if i > 0 {
-			ctx.buf.WriteString(", ")
+	if len(n.values) > 0 {
+		ctx.buf.WriteString("ARRAY[")
+		for i, value := range n.values {
+			if i > 0 {
+				ctx.buf.WriteString(", ")
+			}
+			ctx.buf.WriteString(value)
 		}
-		ctx.buf.WriteString(value)
+		ctx.buf.WriteByte(']')
+	} else {
+		ctx.buf.WriteString("'{}'")
 	}
-	ctx.buf.WriteString("}'")
 }
 
 func Array(values ... interface{}) *ArrayNode {
@@ -870,6 +880,7 @@ const (
 	opUnion              = "||"
 	opIntersect          = "&&"
 	opIn                 = "IN"
+	opNotIn              = "NOT IN"
 	// TODO: More array operators
 )
 
@@ -1076,3 +1087,5 @@ func SubQueryTableExp(stmt *SelectStmt, alias string) *SubQueryTableExpNode {
 // TODO: Array accessor (i.e. '{2, 7, 3}'[1]).
 
 // TODO: Nested arrays.
+
+// TODO: Make both tuple and subquery derive from the same interface

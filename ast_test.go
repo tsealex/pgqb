@@ -128,7 +128,7 @@ func TestBaseColExpNode_Gte(t *testing.T) {
 func TestBaseColExpNode_Intersect(t *testing.T) {
 	col := Column(myTb, "Col")
 	arr := Array(3, 50, 70, 80)
-	assert.Equal(t, fmt.Sprintf(`"%s"."Col" && '{3, 50, 70, 80}'`, myTbTable),
+	assert.Equal(t, fmt.Sprintf(`"%s"."Col" && ARRAY[3, 50, 70, 80]`, myTbTable),
 		AstToSQL(col.Intersect(arr)))
 }
 
