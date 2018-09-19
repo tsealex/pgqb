@@ -23,12 +23,6 @@ func (m *restaurantModel) As(alias string) *restaurantModel {
 	return newRestaurantModel(m.Model.As(alias))
 }
 
-func (m *restaurantModel) all() []ColExp {
-	return []ColExp{
-		m.Id, m.Name, m.Location, m.OpenTime, m.CloseTime, m.OwnerId, m.NumCustomer,
-	}
-}
-
 func newRestaurantModel(src Model) *restaurantModel {
 	return &restaurantModel{
 		Model:       src,
